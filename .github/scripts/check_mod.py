@@ -4,7 +4,7 @@
     check_mod.py [BASE_REF]
 
 Always: mod.toml has a name and a SemVer version, and its [StarMap] EntryAssembly is the assembly the project builds.
-With BASE_REF (a pull request's target): a change to anything the release zip is made from needs a version above every
+With BASE_REF (a pull request's target): a change to the code or mod.toml needs a version above every
 tag and not below the target's (above it once the target's is released), and release-notes/v<version>.md. The build
 itself is checked by the workflow.
 """
@@ -16,7 +16,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MOD_TOML = "mod/CharacterManager/mod.toml"
-SHIPPED = ("src/", "CharacterManager.csproj", "mod/", "README.md", "LICENSE")  # what the zip is built from
+SHIPPED = ("src/", "CharacterManager.csproj", "mod/")  # what the zip is built from, except README.md and LICENSE:
+# documentation alone does not need a release; the next one carries it
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 errors = []
 
