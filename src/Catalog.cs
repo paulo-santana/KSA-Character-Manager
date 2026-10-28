@@ -28,6 +28,8 @@ internal static class Catalog
     private static readonly FieldInfo? AllCharactersField = AccessTools.Field(typeof(ModLibrary), "AllCharacters");
 
     internal static readonly List<CharacterInfo> Characters = new();
+    /// Crew that mods always put in a new game's roster ([[crew]] in characters.toml), in load order.
+    internal static readonly List<(string Name, CharacterInfo Character)> Crew = new();
 
     internal static CharacterInfo? Find(string id) => Characters.FirstOrDefault(c => c.Id == id);
 
@@ -42,6 +44,7 @@ internal static class Catalog
     internal static void Build()
     {
         Characters.Clear();
+        Crew.Clear();
         foreach (CharacterReference c in Registered())
             Characters.Add(new CharacterInfo { Reference = c, Id = c.Id, ModId = c.Mod?.Id ?? "?", DisplayName = c.Id });
 
@@ -60,11 +63,25 @@ internal static class Catalog
             }
         }
         Log.Info($"{Characters.Count} characters: " + string.Join(", ", Characters.Select(c => $"{c.Id} ({c.ModId}{(c.Names is null ? "" : ", named")})")));
+        if (Crew.Count > 0)
+            Log.Info("fixed crew: " + string.Join(", ", Crew.Select(c => $"{c.Name} ({c.Character.Id})")));
     }
 
     private static void ReadDeclaration(Mod mod, string path)
     {
         TomlDocument doc = TomlParser.ParseFile(path);
+        if (doc.TryGetValue("crew", out TomlValue? crew) && crew is TomlArray members)
+            foreach (TomlValue v in members)
+            {
+                if (v is not TomlTable t || !t.ContainsKey("name") || !t.ContainsKey("character"))
+                    continue;
+                // like a name list, a mod may only put its own characters in the crew
+                CharacterInfo? info = Characters.FirstOrDefault(c => c.Id == t.GetString("character") && c.ModId == mod.Id);
+                if (info is null)
+                    Log.Error($"{mod.Id}/{DeclarationFile}: crew '{t.GetString("name")}': '{t.GetString("character")}' is not a character of {mod.Id}");
+                else
+                    Crew.Add((t.GetString("name"), info));
+            }
         if (doc.TryGetValue("character", out TomlValue? list) && list is TomlArray characters)
             foreach (TomlValue v in characters)
             {

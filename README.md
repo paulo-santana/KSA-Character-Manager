@@ -12,6 +12,7 @@ Open **View > Mods > Characters** in game.
 
 - **Roster Character Models:** one checkbox per mod with characters, including the game's own kittens (`Core`). New recruits are picked only from the mods that are ticked. Untick `Core` and new crew are only characters from your mods.
 - **Names:** a recruit whose character comes from a mod with a name list gets a name from that list, e.g. "Bob Kerman" for a Kerbal from KSP Characters. Other recruits keep the game's kitten names.
+- **Fixed crew:** a mod can name crew that every new game starts with, e.g. Jebediah, Bill, Bob and Valentina Kerman from KSP Characters, while that mod is ticked. They join right after the game's own three, in place of random recruits. In a Testing start the first two are seated in the starting vehicles.
 - **Current Game:** "Regenerate unused recruits" replaces the crew in the current game who have never flown, aren't seated and aren't on EVA, using the options above. Click it twice to confirm.
 
 The game's three starting crew, Hunter, Banjo and Polaris, are left as they are.
@@ -46,7 +47,15 @@ pools = ["common-m", "special-m"]  # optional: which pools of the list this char
 surname = "Kerman"               # optional: appended to every name
 ```
 
-A mod can only describe its own characters, so two mods can't fight over one.
+To have crew in every new game, add `[[crew]]` entries:
+
+```toml
+[[crew]]
+name = "Jebediah Kerman"
+character = "KerbalOrange"       # a character your mod defines
+```
+
+A mod can only describe its own characters and give crew its own characters, so two mods can't fight over one.
 
 The name list has one name per line, optionally with a pool in front: `common-m Bob`. A line without a pool is in the pool `common`, and `#` starts a comment. Without `pools`, a character uses every pool except `veteran`. As in KSP, names from pools whose name starts with `special` are drawn 1 time in 20.
 

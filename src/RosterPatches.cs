@@ -47,8 +47,25 @@ internal static class CreateRoster
 {
     static void Postfix(KittenRosterData __result)
     {
-        // the fixed three keep their names: the game pairs them by name with their EVA vehicles in the world
-        foreach (KittenRosterEntryData k in __result.Kittens.Skip(Roster.FixedCrew))
+        // The fixed three keep their names: the game pairs them by name with their EVA vehicles in the world. Right after them
+        // come the crew that the ticked mods always bring, each in place of a random recruit, so the roster keeps its size; in
+        // a Testing start the game then seats the first two of them (AssignStartingCrew seats free crew in roster order).
+        List<KittenRosterEntryData> kittens = __result.Kittens;
+        int at = Roster.FixedCrew;
+        foreach ((string name, CharacterInfo character) in Catalog.Crew)
+        {
+            if (Settings.Current.SkippedMods.Contains(character.ModId))
+                continue;
+            if (kittens.Any(k => k.Name == name))
+            {
+                Log.Error($"fixed crew: '{name}' is already in the roster");
+                continue;
+            }
+            kittens.Insert(at++, new KittenRosterEntryData(name, character.Id));
+            if (kittens.Count - 1 >= at)
+                kittens.RemoveAt(kittens.Count - 1);
+        }
+        foreach (KittenRosterEntryData k in kittens.Skip(at))
             Roster.Rename(__result, k);
     }
 }
