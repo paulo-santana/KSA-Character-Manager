@@ -1,3 +1,4 @@
 bin/
 obj/
 mod/CharacterManager/*.dll
+.idea/

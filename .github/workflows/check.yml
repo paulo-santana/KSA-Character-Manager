@@ -1,0 +1,41 @@
+# Blocks a pull request into master that would break the mod or its release: checks the version
+# (.github/scripts/check_mod.py), then builds the mod and the zip as a release would. Branch protection
+# requires this check.
+#
+# Needs, in the repository settings: secret BUILD_LIBS_KEY, the private half of a read-only deploy key of
+# paulo-santana/ksa-build-libs (the game's assemblies, which can't be redistributed).
+
+name: Check
+
+on:
+  pull_request:
+    branches: [master]
+
+jobs:
+  mod:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the version
+        run: python3 .github/scripts/check_mod.py "origin/${{ github.base_ref }}"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: paulo-santana/ksa-build-libs
+          ref: main
+          ssh-key: ${{ secrets.BUILD_LIBS_KEY }}
+          path: build-libs
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build the mod and the zip as a release would
+        run: |
+          bash .github/scripts/build.sh build-libs mod.zip
+          echo "Built against KSA $(cat build-libs/GAME_VERSION), StarMap $(cat build-libs/STARMAP_VERSION)"
+          if unzip -Z1 mod.zip | grep -vq "^CharacterManager/"; then echo "the zip has files outside CharacterManager/"; exit 1; fi
+          unzip -Z1 mod.zip | grep -qx "CharacterManager/CharacterManager.dll" || { echo "the zip has no CharacterManager.dll"; exit 1; }
