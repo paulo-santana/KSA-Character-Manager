@@ -21,10 +21,9 @@ internal static class Regenerate
         KittenRosterData? roster = Universe.KittenRoster;
         if (roster is null || !ImGuiHelper.BeginRegion("Current Game"))
             return;
+        ImGui.Columns(); // one column, so the text wraps at the window's width, not BeginRegion's first column
         int n = Unused(roster).Count;
         ImGui.TextWrapped($"{roster.Kittens.Count} crew, {n} unused recruits (never flown, not seated, not on EVA).");
-        ImGui.NextColumn();
-        ImGui.NextColumn();
         using (new ImGuiDisabledScope(n == 0))
         {
             if (ImGui.Button(_armed ? $"Click again to replace {n} recruits" : "Regenerate unused recruits"))

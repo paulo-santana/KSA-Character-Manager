@@ -49,7 +49,7 @@ internal static class Options
     private static void RosterTooltip()
     {
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Select from which mods to pull characters from. Persists across New Games. \"Regenerate unused recruits\" below will pick random characters from selected mods.");
+            ImGui.SetTooltip("Select from which mods to pull characters from. Persists across New Games.\n\"Regenerate unused recruits\" below will pick random characters from selected mods.");
     }
 
     private static void Toggle(HashSet<string> set, string id, bool on)
