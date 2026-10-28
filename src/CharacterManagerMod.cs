@@ -4,10 +4,10 @@ using StarMap.API;
 
 namespace CharacterManager;
 
-/// Lets the player choose which mods' characters the game recruits, and gives each character the kind of name its mod
-/// declares. The game's own starting three (Hunter, Banjo, Polaris) are left as they are. Works for any character mod: what
-/// the game already knows (every registered character and the mod that defined it) is enough; a characters.toml in a mod
-/// only adds name lists and display names.
+/// Lets the player choose which mods' characters the game recruits, gives each character the kind of name its mod declares,
+/// and adds the crew a mod always brings to a new game. The game's own starting three (Hunter, Banjo, Polaris) are left as they
+/// are. Works for any character mod: what the game already knows (every registered character and the mod that defined it) is
+/// enough; a characters.toml in a mod only adds name lists, display names and fixed crew.
 [StarMapMod]
 public class CharacterManagerMod
 {
