@@ -21,10 +21,15 @@ The options are saved for the whole install, in `Documents/My Games/Kitten Space
 Character Manager is a code mod, so it needs the [StarMap](https://github.com/StarMapLoader/StarMap) mod loader.
 
 1. Copy the `CharacterManager` folder into `Documents/My Games/Kitten Space Agency/mods/`.
-2. Start the game once and quit. The game adds the mod to its list, but StarMap has already read that list by then.
-3. Start the game through StarMap again. The mod is now loaded.
+2. Add these lines to `Documents/My Games/Kitten Space Agency/manifest.toml`:
 
-If the Characters window does not show up, open `Documents/My Games/Kitten Space Agency/manifest.toml` and make sure the `CharacterManager` entry has `enabled = true`.
+   ```toml
+   [[mods]]
+   id = "CharacterManager"
+   enabled = true
+   ```
+
+3. Start the game through StarMap.
 
 ## For character mod authors: `characters.toml`
 
