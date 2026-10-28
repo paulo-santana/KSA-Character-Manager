@@ -1,0 +1,5 @@
+name = "Character Manager"
+version = "0.1.0"
+
+[StarMap]
+EntryAssembly = "CharacterManager"

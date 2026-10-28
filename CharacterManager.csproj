@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>CharacterManager</AssemblyName>
+    <RootNamespace>CharacterManager</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GameDir Condition="'$(GameDir)' == ''">$(HOME)/Games/Ahwoo/Kitten Space Agency</GameDir>
+    <StarMapDir Condition="'$(StarMapDir)' == ''">$(HOME)/Games/starmap</StarMapDir>
+    <OutDir>mod/CharacterManager/</OutDir>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="KSA"><HintPath>$(GameDir)/KSA.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Brutal.ImGui"><HintPath>$(GameDir)/Brutal.ImGui.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Brutal.ImGui.Abstractions"><HintPath>$(GameDir)/Brutal.ImGui.Abstractions.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Brutal.Numerics"><HintPath>$(GameDir)/Brutal.Numerics.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Brutal.Strings"><HintPath>$(GameDir)/Brutal.Strings.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Planet.Render.Core"><HintPath>$(GameDir)/Planet.Render.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Tomlet"><HintPath>$(GameDir)/Tomlet.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="StarMap.API"><HintPath>$(StarMapDir)/StarMap.API.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(StarMapDir)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>
