@@ -2,6 +2,8 @@
 
 Lets you choose which character mods your crew roster draws from, and gives each character the names its mod provides.
 
+**It does nothing on its own.** It manages the characters that other mods add, such as [KSP Characters](https://github.com/paulo-santana/KSA-KSP-Characters). With only the game's own kittens installed, there is nothing to choose between.
+
 It works with any character mod. A mod doesn't need to know about this one: every character the game has loaded shows up. A mod can also come with a name list (see below), and then its characters are named from it.
 
 ## What it does
