@@ -29,7 +29,7 @@ internal static class Options
                     changed = true;
                 }
             }
-            ImGui.TextWrapped("New recruits are picked from these. A mod that comes with a name list names its own characters.");
+            ImGui.TextWrapped("New recruits are picked from these. A change applies to crew recruited from now on: a new game, new recruits, or Regenerate below. Crew you already have keep their model. A mod that comes with a name list names its own characters.");
             ImGui.NextColumn();
             ImGui.NextColumn();
             ImGuiHelper.EndRegion();

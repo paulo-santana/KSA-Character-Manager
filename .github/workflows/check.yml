@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: paulo-santana/ksa-build-libs
+          ref: main
           ssh-key: ${{ secrets.BUILD_LIBS_KEY }}
           path: build-libs
 

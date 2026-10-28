@@ -4,8 +4,9 @@
     check_mod.py [BASE_REF]
 
 Always: mod.toml has a name and a SemVer version, and its [StarMap] EntryAssembly is the assembly the project builds.
-With BASE_REF (a pull request's target): a change to anything the release zip is made from needs a higher version than
-the target's and than every tag, and release-notes/v<version>.md. The build itself is checked by the workflow.
+With BASE_REF (a pull request's target): a change to anything the release zip is made from needs a version above every
+tag and not below the target's (above it once the target's is released), and release-notes/v<version>.md. The build
+itself is checked by the workflow.
 """
 import re
 import subprocess
@@ -54,12 +55,16 @@ def check_against(base, version):
     if not changed:
         print("No shipped file changed: no release needed.")
         return
-    base_version = tomllib.loads(git("show", f"{base}:{MOD_TOML}")).get("version")
-    tags = [semver(t[1:]) for t in git("tag", "--list", "v*").split()]
-    newest = max([t for t in tags if t] + [semver(base_version) or (0, 0, 0)])
-    if semver(version) is None or semver(version) <= newest:
+    base_version = semver(tomllib.loads(git("show", f"{base}:{MOD_TOML}")).get("version")) or (0, 0, 0)
+    tags = [t for t in (semver(t[1:]) for t in git("tag", "--list", "v*").split()) if t]
+    released = max(tags, default=(0, 0, 0))
+    # above every release; the target's version may still be unreleased (the first release), then it may stay
+    ok = semver(version) is not None and semver(version) > released and semver(version) >= base_version \
+        and (semver(version) > base_version or base_version not in tags)
+    if not ok:
+        floor = max(released, base_version)
         error(f"shipped files changed ({', '.join(changed[:5])}{'...' if len(changed) > 5 else ''}): "
-              f"raise version in {MOD_TOML} above {'.'.join(map(str, newest))}")
+              f"raise version in {MOD_TOML} above {'.'.join(map(str, floor))}")
     notes = ROOT / "release-notes" / f"v{version}.md"
     if not notes.is_file() or not notes.read_text().strip():
         error(f"release-notes/v{version}.md is missing or empty")
