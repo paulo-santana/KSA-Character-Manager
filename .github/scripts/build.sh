@@ -9,5 +9,6 @@ stage="$(mktemp -d)"
 mkdir "$stage/CharacterManager"
 cp mod/CharacterManager/CharacterManager.dll mod/CharacterManager/mod.toml README.md LICENSE "$stage/CharacterManager/"
 rm -f "$zip"
-(cd "$stage" && zip -qr - CharacterManager) > "$zip"
+# Info-ZIP reads $ZIP and $ZIPOPT as extra options, so a caller's ZIP=<file name> would corrupt the archive
+(cd "$stage" && env -u ZIP -u ZIPOPT zip -qr - CharacterManager) > "$zip"
 unzip -l "$zip"
