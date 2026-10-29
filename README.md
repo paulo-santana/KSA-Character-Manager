@@ -13,6 +13,7 @@ Open **View > Mods > Characters** in game.
 - **Roster Character Models:** one checkbox per mod with characters, including the game's own kittens (`Core`). New recruits are picked only from the mods that are ticked. Untick `Core` and new crew are only characters from your mods.
 - **Names:** a recruit whose character comes from a mod with a name list gets a name from that list, e.g. "Bob Kerman" for a Kerbal from KSP Characters. Other recruits keep the game's kitten names.
 - **Fixed crew:** a mod can name crew that every new game starts with, e.g. Jebediah, Bill, Bob and Valentina Kerman from KSP Characters, while that mod is ticked. They join right after the game's own three, in place of random recruits. In a Testing start the first two are seated in the starting vehicles.
+- **Idle variety:** a crew member standing still on the ground plays one of their character's idle variants now and then, e.g. KSP's idle animations for the Kerbals of KSP Characters. The game has this only for seated crew and the jetpack.
 - **Current Game:** "Regenerate unused recruits" replaces the crew in the current game who have never flown, aren't seated and aren't on EVA, using the options above. Click it twice to confirm.
 
 The game's three starting crew, Hunter, Banjo and Polaris, are left as they are.
@@ -46,6 +47,19 @@ names = "names/kerbal_names.txt" # name list, relative to your mod folder
 pools = ["common-m", "special-m"]  # optional: which pools of the list this character uses
 surname = "Kerman"               # optional: appended to every name
 ```
+
+To give your characters idle variants on the ground, list them in your asset XML, right in the character's `CharacterGroundAnimations`, as `GltfFile`s like the game's own clips:
+
+```xml
+<CharacterGroundAnimations Id="MyGroundAnimations">
+    <AnimIdle Id="MyAnimIdleGlb"/>
+    <CharacterManager.AnimIdleAction Id="MyAnimIdleAGlb"/>
+    <CharacterManager.AnimIdleAction Id="MyAnimIdleBGlb"/>
+    ...
+</CharacterGroundAnimations>
+```
+
+The `CharacterManager.` prefix marks a line only this mod reads; the game skips it, so your mod still loads without Character Manager. A standing character plays a random one after 10 to 20 seconds of idle, then goes back to `AnimIdle`.
 
 To have crew in every new game, add `[[crew]]` entries:
 

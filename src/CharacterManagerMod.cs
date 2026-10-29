@@ -1,5 +1,7 @@
 using System;
+using System.Linq;
 using HarmonyLib;
+using KSA;
 using StarMap.API;
 
 namespace CharacterManager;
@@ -26,6 +28,7 @@ public class CharacterManagerMod
         try
         {
             Catalog.Build();
+            IdleActions.Read(Catalog.Characters.Select(c => c.Reference.Mod).OfType<Mod>().Distinct());
         }
         catch (Exception e)
         {
