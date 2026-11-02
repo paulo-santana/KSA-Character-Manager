@@ -28,7 +28,7 @@ public class CharacterManagerMod
         try
         {
             Catalog.Build();
-            IdleActions.Read(Catalog.Characters.Select(c => c.Reference.Mod).OfType<Mod>().Distinct());
+            AnimationExtensions.Read(Catalog.Characters.Select(c => c.Reference.Mod).OfType<Mod>().Distinct());
         }
         catch (Exception e)
         {

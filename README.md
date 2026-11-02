@@ -14,6 +14,7 @@ Open **View > Mods > Characters** in game.
 - **Names:** a recruit whose character comes from a mod with a name list gets a name from that list, e.g. "Bob Kerman" for a Kerbal from KSP Characters. Other recruits keep the game's kitten names.
 - **Fixed crew:** a mod can name crew that every new game starts with, e.g. Jebediah, Bill, Bob and Valentina Kerman from KSP Characters, while that mod is ticked. They join right after the game's own three, in place of random recruits. In a Testing start the first two are seated in the starting vehicles.
 - **Idle variety:** a crew member standing still on the ground plays one of their character's idle variants now and then, e.g. KSP's idle animations for the Kerbals of KSP Characters. The game has this only for seated crew and the jetpack.
+- **Ladders:** a character can have its own clips for holding still on a ladder and for climbing down; the game has one climbing clip for both directions and freezes it whenever the position doesn't change.
 - **Current Game:** "Regenerate unused recruits" replaces the crew in the current game who have never flown, aren't seated and aren't on EVA, using the options above. Click it twice to confirm.
 
 The game's three starting crew, Hunter, Banjo and Polaris, are left as they are.
@@ -60,6 +61,16 @@ To give your characters idle variants on the ground, list them in your asset XML
 ```
 
 The `CharacterManager.` prefix marks a line only this mod reads; the game skips it, so your mod still loads without Character Manager. A standing character plays a random one after 10 to 20 seconds of idle, then goes back to `AnimIdle`.
+
+Ladder clips go right after `AnimLadder`, one of each at most:
+
+```xml
+    <AnimLadder Id="MyAnimLadderUpGlb"/>
+    <CharacterManager.AnimLadderIdle Id="MyAnimLadderIdleGlb"/>   <!-- holding still -->
+    <CharacterManager.AnimLadderDown Id="MyAnimLadderDownGlb"/>   <!-- climbing down -->
+```
+
+A character with either one also climbs smoothly: the game freezes its ladder clip between physics steps, and Character Manager lifts that freeze while it climbs.
 
 To have crew in every new game, add `[[crew]]` entries:
 
