@@ -57,7 +57,7 @@ name = "Jebediah Kerman"
 character = "KerbalOrange"       # a character your mod defines
 ```
 
-A mod can only describe its own characters and give crew its own characters, so two mods can't fight over one.
+A mod can only describe its own characters, and its fixed crew (`[[crew]]`) can only use its own characters, so two mods can't fight over one.
 
 The name list has one name per line, optionally with a pool in front: `common-m Bob`. A line without a pool is in the pool `common`, and `#` starts a comment. Without `pools`, a character uses every pool except `veteran`. As in KSP, names from pools whose name starts with `special` are drawn 1 time in 20.
 
