@@ -49,7 +49,29 @@ pools = ["common-m", "special-m"]  # optional: which pools of the list this char
 surname = "Kerman"               # optional: appended to every name
 ```
 
-To give your characters idle variants on the ground, list them in your asset XML, right in the character's `CharacterGroundAnimations`, as `GltfFile`s like the game's own clips:
+To have specific crew definitions in every new game, add `[[crew]]` entries:
+
+```toml
+[[crew]]
+name = "Jebediah Kerman"
+character = "KerbalOrange"       # a character your mod defines
+```
+
+A mod can only describe its own characters and give crew its own characters, so two mods can't fight over one.
+
+The name list has one name per line, optionally with a pool in front: `common-m Bob`. A line without a pool is in the pool `common`, and `#` starts a comment. Without `pools`, a character uses every pool except `veteran`. As in KSP, names from pools whose name starts with `special` are drawn 1 time in 20.
+
+### Animation extensions
+
+Animations the game has no slot for go in your asset XML, inside the character's `CharacterGroundAnimations`, each pointing at a `GltfFile` like the game's own clips:
+
+| Tag | Where | How many | Plays |
+| --- | --- | --- | --- |
+| `CharacterManager.AnimIdleAction` | after `AnimIdle` | any | an idle variant now and then while standing |
+| `CharacterManager.AnimLadderIdle` | after `AnimLadder` | one | while holding still on a ladder |
+| `CharacterManager.AnimLadderDown` | after `AnimLadder` | one | while climbing down a ladder |
+
+Idle variants on the ground:
 
 ```xml
 <CharacterGroundAnimations Id="MyGroundAnimations">
@@ -71,18 +93,6 @@ Ladder clips go right after `AnimLadder`, one of each at most:
 ```
 
 A character with either one also climbs smoothly: the game freezes its ladder clip between physics steps, and Character Manager lifts that freeze while it climbs.
-
-To have crew in every new game, add `[[crew]]` entries:
-
-```toml
-[[crew]]
-name = "Jebediah Kerman"
-character = "KerbalOrange"       # a character your mod defines
-```
-
-A mod can only describe its own characters and give crew its own characters, so two mods can't fight over one.
-
-The name list has one name per line, optionally with a pool in front: `common-m Bob`. A line without a pool is in the pool `common`, and `#` starts a comment. Without `pools`, a character uses every pool except `veteran`. As in KSP, names from pools whose name starts with `special` are drawn 1 time in 20.
 
 [KSP Characters](https://github.com/paulo-santana/KSA-KSP-Characters) is a complete example.
 
