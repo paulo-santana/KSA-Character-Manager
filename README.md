@@ -13,6 +13,8 @@ Open **View > Mods > Characters** in game.
 - **Roster Character Models:** one checkbox per mod with characters, including the game's own kittens (`Core`). New recruits are picked only from the mods that are ticked. Untick `Core` and new crew are only characters from your mods.
 - **Names:** a recruit whose character comes from a mod with a name list gets a name from that list, e.g. "Bob Kerman" for a Kerbal from KSP Characters. Other recruits keep the game's kitten names.
 - **Fixed crew:** a mod can name crew that every new game starts with, e.g. Jebediah, Bill, Bob and Valentina Kerman from KSP Characters, while that mod is ticked. They join right after the game's own three, in place of random recruits. In a Testing start the first two are seated in the starting vehicles.
+- **Idle variety:** a crew member standing still on the ground plays one of their character's idle variants now and then, e.g. KSP's idle animations for the Kerbals of KSP Characters. The game has this only for seated crew and the jetpack.
+- **Ladders:** a character can have its own clips for holding still on a ladder and for climbing down; the game has one climbing clip for both directions and freezes it whenever the position doesn't change.
 - **Current Game:** "Regenerate unused recruits" replaces the crew in the current game who have never flown, aren't seated and aren't on EVA, using the options above. Click it twice to confirm.
 
 The game's three starting crew, Hunter, Banjo and Polaris, are left as they are.
@@ -47,7 +49,7 @@ pools = ["common-m", "special-m"]  # optional: which pools of the list this char
 surname = "Kerman"               # optional: appended to every name
 ```
 
-To have crew in every new game, add `[[crew]]` entries:
+To have specific crew definitions in every new game, add `[[crew]]` entries:
 
 ```toml
 [[crew]]
@@ -58,6 +60,39 @@ character = "KerbalOrange"       # a character your mod defines
 A mod can only describe its own characters and give crew its own characters, so two mods can't fight over one.
 
 The name list has one name per line, optionally with a pool in front: `common-m Bob`. A line without a pool is in the pool `common`, and `#` starts a comment. Without `pools`, a character uses every pool except `veteran`. As in KSP, names from pools whose name starts with `special` are drawn 1 time in 20.
+
+### Animation extensions
+
+Animations the game has no slot for go in your asset XML, inside the character's `CharacterGroundAnimations`, each pointing at a `GltfFile` like the game's own clips:
+
+| Tag | Where | How many | Plays |
+| --- | --- | --- | --- |
+| `CharacterManager.AnimIdleAction` | after `AnimIdle` | any | an idle variant now and then while standing |
+| `CharacterManager.AnimLadderIdle` | after `AnimLadder` | one | while holding still on a ladder |
+| `CharacterManager.AnimLadderDown` | after `AnimLadder` | one | while climbing down a ladder |
+
+Idle variants on the ground:
+
+```xml
+<CharacterGroundAnimations Id="MyGroundAnimations">
+    <AnimIdle Id="MyAnimIdleGlb"/>
+    <CharacterManager.AnimIdleAction Id="MyAnimIdleAGlb"/>
+    <CharacterManager.AnimIdleAction Id="MyAnimIdleBGlb"/>
+    ...
+</CharacterGroundAnimations>
+```
+
+The `CharacterManager.` prefix marks a line only this mod reads; the game skips it, so your mod still loads without Character Manager. A standing character plays a random one after 10 to 20 seconds of idle, then goes back to `AnimIdle`.
+
+Ladder clips go right after `AnimLadder`, one of each at most:
+
+```xml
+    <AnimLadder Id="MyAnimLadderUpGlb"/>
+    <CharacterManager.AnimLadderIdle Id="MyAnimLadderIdleGlb"/>   <!-- holding still -->
+    <CharacterManager.AnimLadderDown Id="MyAnimLadderDownGlb"/>   <!-- climbing down -->
+```
+
+A character with either one also climbs smoothly: the game freezes its ladder clip between physics steps, and Character Manager lifts that freeze while it climbs.
 
 [KSP Characters](https://github.com/paulo-santana/KSA-KSP-Characters) is a complete example.
 
