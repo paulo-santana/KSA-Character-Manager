@@ -15,6 +15,8 @@ Open **View > Mods > Characters** in game.
 - **Fixed crew:** a mod can name crew that every new game starts with, e.g. Jebediah, Bill, Bob and Valentina Kerman from KSP Characters, while that mod is ticked. They join right after the game's own three, in place of random recruits. In a Testing start the first two are seated in the starting vehicles.
 - **Idle variety:** a crew member standing still on the ground plays one of their character's idle variants now and then, e.g. KSP's idle animations for the Kerbals of KSP Characters. The game has this only for seated crew and the jetpack.
 - **Ladders:** a character can have its own clips for holding still on a ladder and for climbing down; the game has one climbing clip for both directions and freezes it whenever the position doesn't change.
+- **RCS stance:** while the jetpack's RCS is on, a character can stand, walk and jump with its own clips, and play a toggle animation when RCS is turned on or off while standing. Its jetpack's arms can come out with their own clip, in step with the body; the game plays its one arm clip backwards.
+- **Jetpacks:** a character with its own jetpack can put the RCS puffs at that jetpack's thrusters. Only the visuals move; the thrust stays the game's. Untick "RCS puffs from the character's own jetpack" to see the game's positions.
 - **Current Game:** "Regenerate unused recruits" replaces the crew in the current game who have never flown, aren't seated and aren't on EVA, using the options above. Click it twice to confirm.
 
 The game's three starting crew, Hunter, Banjo and Polaris, are left as they are.
@@ -70,6 +72,16 @@ Animations the game has no slot for go in your asset XML, inside the character's
 | `CharacterManager.AnimIdleAction` | after `AnimIdle` | any | an idle variant now and then while standing |
 | `CharacterManager.AnimLadderIdle` | after `AnimLadder` | one | while holding still on a ladder |
 | `CharacterManager.AnimLadderDown` | after `AnimLadder` | one | while climbing down a ladder |
+| `CharacterManager.Anim<slot>Rcs` | after the slot | one per slot | instead of the slot while RCS is on; for `AnimIdle`, `AnimWalk`, `AnimMoonWalk`, `AnimMoonRun`, `AnimJump`, `AnimJumpLand`, `AnimTumble` |
+| `CharacterManager.AnimRcsOn` | after `AnimIdle` | one | once, when RCS is turned on while standing |
+| `CharacterManager.AnimRcsOff` | after `AnimIdle` | one | once, when RCS is turned off while standing |
+
+Two more go elsewhere:
+
+| Tag | Where | How many | Does |
+| --- | --- | --- | --- |
+| `CharacterManager.MMUArmExtendAnim` | in `CharacterMMUAnimations`, after `MMUArmRetractAnim` | one | the jetpack's arms coming out when RCS is turned on (the game plays `MMUArmRetractAnim` backwards); it uses the same skeleton |
+| `CharacterManager.RcsPuff` | in the jetpack's `CharacterAttachment` | one per nozzle | moves that nozzle's RCS puff (see below) |
 
 Idle variants on the ground:
 
@@ -93,6 +105,28 @@ Ladder clips go right after `AnimLadder`, one of each at most:
 ```
 
 A character with either one also climbs smoothly: the game freezes its ladder clip between physics steps, and Character Manager lifts that freeze while it climbs.
+
+RCS clips go right after the slot they stand in for, and the toggles after `AnimIdle`:
+
+```xml
+    <AnimIdle Id="MyAnimIdleGlb"/>
+    <CharacterManager.AnimIdleRcs Id="MyAnimIdleRcsGlb"/>   <!-- standing with RCS on -->
+    <CharacterManager.AnimRcsOn Id="MyAnimRcsOnGlb"/>
+    <CharacterManager.AnimRcsOff Id="MyAnimRcsOffGlb"/>
+```
+
+A toggle plays only when the character stands still, as in KSP; while moving, the stance just switches.
+
+RCS puffs are given per nozzle of the game's EVA jetpack (`KittenBackPackSubPart` in `Core/PartGameData.xml`, e.g. `TranslateRight1`), in that part's frame: metres, the feet at the origin, +X forward, +Y right, -Z up. `X`, `Y`, `Z` are where the puff starts; `DX`, `DY`, `DZ`, optional, the direction it blows:
+
+```xml
+<CharacterAttachment Id="MyJetpackAttachment">
+    ...
+    <CharacterManager.RcsPuff Nozzle="TranslateRight1" X="-0.22" Y="-0.17" Z="-0.46" DX="0" DY="-1" DZ="0"/>
+</CharacterAttachment>
+```
+
+Only the puffs, trails and exhaust light move; each nozzle still pushes from where the game puts it.
 
 [KSP Characters](https://github.com/paulo-santana/KSA-KSP-Characters) is a complete example.
 
