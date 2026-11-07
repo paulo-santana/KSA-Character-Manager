@@ -38,6 +38,20 @@ internal static class Options
             ImGuiHelper.EndRegion();
         }
 
+        if (RcsPuffs.ByAttachment.Count > 0 && ImGuiHelper.BeginRegion("Jetpacks"))
+        {
+            ImGui.Columns();
+            bool atJetpack = s.RcsPuffsAtJetpack;
+            if (ImGui.Checkbox("RCS puffs from the character's own jetpack###rcsPuffs", ref atJetpack))
+            {
+                s.RcsPuffsAtJetpack = atJetpack;
+                changed = true;
+            }
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("For characters whose mod gives their jetpack its own thruster positions. Only where the puffs are drawn\nchanges: the thrust still pushes from the game's positions. Off: the puffs come from the game's jetpack layout.");
+            ImGuiHelper.EndRegion();
+        }
+
         Regenerate.Draw();
 
         if (changed)

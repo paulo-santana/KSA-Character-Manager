@@ -19,7 +19,7 @@ public class CharacterManagerMod
     public void Init()
     {
         Settings.Load();
-        new Harmony(Id).PatchAll(typeof(CharacterManagerMod).Assembly);
+        GameMembers.Patch(new Harmony(Id));
     }
 
     [StarMapAllModsLoaded]
@@ -28,7 +28,8 @@ public class CharacterManagerMod
         try
         {
             Catalog.Build();
-            AnimationExtensions.Read(Catalog.Characters.Select(c => c.Reference.Mod).OfType<Mod>().Distinct());
+            if (GameMembers.AnimationOk)
+                AnimationExtensions.Read(Catalog.Characters.Select(c => c.Reference.Mod).OfType<Mod>().Distinct());
         }
         catch (Exception e)
         {
