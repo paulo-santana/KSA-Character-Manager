@@ -7,23 +7,38 @@ using System.Runtime.CompilerServices;
 using System.Xml.Linq;
 using HarmonyLib;
 using KSA;
+using KSA.Rendering;
+using RenderCore;
 
 namespace CharacterManager;
 
 /// Animations the game has no slot for. A character mod declares them in its own asset XML, next to the game's clips:
 ///     <CharacterGroundAnimations Id="...">
 ///         <AnimIdle Id="..."/>
-///         <CharacterManager.AnimIdleAction Id="(a GltfFile id)"/>    any number: idle variants while standing
+///         <CharacterManager.AnimIdleRcs Id="(a GltfFile id)"/>       while the jetpack's RCS is on (also Walk, MoonWalk,
+///                                                                    MoonRun, Jump, JumpLand, Tumble: Anim<slot>Rcs)
+///         <CharacterManager.AnimRcsOn Id="..."/>                    once, when RCS is turned on while standing still
+///         <CharacterManager.AnimRcsOff Id="..."/>                   once, when it is turned off while standing still
+///         <CharacterManager.AnimIdleAction Id="..."/>               any number: idle variants while standing
 ///         <AnimLadder Id="..."/>
 ///         <CharacterManager.AnimLadderIdle Id="..."/>               holding still on a ladder
 ///         <CharacterManager.AnimLadderDown Id="..."/>               climbing down (the game plays the climb up both ways)
+///     <CharacterMMUAnimations Id="...">
+///         <MMUArmRetractAnim Id="..."/>
+///         <CharacterManager.MMUArmExtendAnim Id="..."/>             the jetpack's arms when RCS is turned on (see ArmSampler)
 /// The game reads asset XML with a plain XmlSerializer, which skips elements it does not know, so the file still loads
 /// without this mod; the prefix marks the lines as this mod's extension.
 internal static class AnimationExtensions
 {
-    internal const string IdleActionTag = "CharacterManager.AnimIdleAction";
-    internal const string LadderIdleTag = "CharacterManager.AnimLadderIdle";
-    internal const string LadderDownTag = "CharacterManager.AnimLadderDown";
+    internal const string Prefix = "CharacterManager.";
+    internal const string IdleActionTag = Prefix + "AnimIdleAction";
+    internal const string LadderIdleTag = Prefix + "AnimLadderIdle";
+    internal const string LadderDownTag = Prefix + "AnimLadderDown";
+    internal const string RcsOnTag = Prefix + "AnimRcsOn";
+    internal const string RcsOffTag = Prefix + "AnimRcsOff";
+    internal const string ArmExtendTag = Prefix + "MMUArmExtendAnim";
+    /// The game's ground slots that have a version while RCS is on, as Anim<slot>Rcs.
+    internal static readonly string[] RcsSlots = { "AnimIdle", "AnimWalk", "AnimMoonWalk", "AnimMoonRun", "AnimJump", "AnimJumpLand", "AnimTumble" };
     /// Seconds a character stands idle before an idle action starts, picked anew each time.
     private const float MinWait = 10f, MaxWait = 20f;
     /// Seconds without moving on a ladder before the hold pose plays. The ladder position only changes on physics steps, and
@@ -40,37 +55,78 @@ internal static class AnimationExtensions
         AccessTools.FieldRefAccess<KittenRenderable, float>("_lastLadderRailT");
     private static readonly AccessTools.FieldRef<KittenRenderable, CharacterAvatar> Avatar =
         AccessTools.FieldRefAccess<KittenRenderable, CharacterAvatar>("_characterAvatar");
+    private static readonly AccessTools.FieldRef<KittenRenderable, AnimationPairBlendSampler?> WalkPair =
+        AccessTools.FieldRefAccess<KittenRenderable, AnimationPairBlendSampler?>("_walkPairSampler");
+    private static readonly AccessTools.FieldRef<KittenRenderable, AnimationPairBlendSampler?> RunPair =
+        AccessTools.FieldRefAccess<KittenRenderable, AnimationPairBlendSampler?>("_runPairSampler");
+    private static readonly AccessTools.FieldRef<KittenRenderable, AnimationAssetRef?> GroundRun =
+        AccessTools.FieldRefAccess<KittenRenderable, AnimationAssetRef?>("_groundRunAnim");
+    /// The renderable's clip field of each RCS slot (walk and low-gravity clips are also blended in the pair samplers).
+    private static readonly Dictionary<string, AccessTools.FieldRef<KittenRenderable, AnimationAssetRef?>> SlotFields = new()
+    {
+        ["AnimIdle"] = AccessTools.FieldRefAccess<KittenRenderable, AnimationAssetRef?>("_groundIdleAnim"),
+        ["AnimWalk"] = AccessTools.FieldRefAccess<KittenRenderable, AnimationAssetRef?>("_groundWalkAnim"),
+        ["AnimMoonWalk"] = AccessTools.FieldRefAccess<KittenRenderable, AnimationAssetRef?>("_moonWalkAnim"),
+        ["AnimMoonRun"] = AccessTools.FieldRefAccess<KittenRenderable, AnimationAssetRef?>("_moonRunAnim"),
+        ["AnimJump"] = AccessTools.FieldRefAccess<KittenRenderable, AnimationAssetRef?>("_jumpIntroAnim"),
+        ["AnimJumpLand"] = AccessTools.FieldRefAccess<KittenRenderable, AnimationAssetRef?>("_jumpLandAnim"),
+        ["AnimTumble"] = AccessTools.FieldRefAccess<KittenRenderable, AnimationAssetRef?>("_flailAnim"),
+    };
 
     /// What a CharacterGroundAnimations declares, as GltfFile ids.
     internal sealed class Declared
     {
         public List<string> IdleActions = new();
-        public string? LadderIdle, LadderDown;
+        public string? LadderIdle, LadderDown, RcsOn, RcsOff;
+        /// game slot (AnimIdle...) -> its clip while RCS is on
+        public Dictionary<string, string> Rcs = new();
+
+        public bool Any => IdleActions.Count > 0 || LadderIdle != null || LadderDown != null || RcsOn != null || RcsOff != null || Rcs.Count > 0;
     }
+
+    /// The asset a tag points at. KSA's XML is moving from Id to Ref for references (Id will only declare an asset); both
+    /// are read, Ref first.
+    internal static string? RefOf(XElement e) => (string?)(e.Attribute("Ref") ?? e.Attribute("Id"));
 
     /// CharacterGroundAnimations id -> what it declares.
     internal static readonly Dictionary<string, Declared> ByGroundAnimations = new(StringComparer.Ordinal);
 
+    /// CharacterMMUAnimations id -> its arm extend clip (a GltfFile id).
+    internal static readonly Dictionary<string, string> ArmExtendByMmuAnimations = new(StringComparer.Ordinal);
+
     internal static void Read(IEnumerable<Mod> mods)
     {
         ByGroundAnimations.Clear();
+        ArmExtendByMmuAnimations.Clear();
+        RcsPuffs.ByAttachment.Clear();
         foreach (Mod mod in mods)
             foreach (string asset in AssetsField?.GetValue(mod) as string[] ?? Array.Empty<string>())
             {
                 string path = Path.Combine(mod.DirectoryPath, asset);
                 try
                 {
-                    foreach (XElement ground in XDocument.Load(path).Descendants("CharacterGroundAnimations"))
+                    XDocument doc = XDocument.Load(path);
+                    RcsPuffs.Read(doc);
+                    foreach (XElement ground in doc.Descendants("CharacterGroundAnimations"))
                     {
+                        string? Id(string tag) => ground.Element(tag) is { } e ? RefOf(e) : null;
                         Declared d = new()
                         {
-                            IdleActions = ground.Elements(IdleActionTag).Select(e => (string?)e.Attribute("Id")).OfType<string>().ToList(),
-                            LadderIdle = (string?)ground.Element(LadderIdleTag)?.Attribute("Id"),
-                            LadderDown = (string?)ground.Element(LadderDownTag)?.Attribute("Id"),
+                            IdleActions = ground.Elements(IdleActionTag).Select(RefOf).OfType<string>().ToList(),
+                            LadderIdle = Id(LadderIdleTag),
+                            LadderDown = Id(LadderDownTag),
+                            RcsOn = Id(RcsOnTag),
+                            RcsOff = Id(RcsOffTag),
                         };
-                        if ((d.IdleActions.Count > 0 || d.LadderIdle != null || d.LadderDown != null) && (string?)ground.Attribute("Id") is { } id)
+                        foreach (string slot in RcsSlots)
+                            if (Id(Prefix + slot + "Rcs") is { } rcs)
+                                d.Rcs[slot] = rcs;
+                        if (d.Any && (string?)ground.Attribute("Id") is { } id)
                             ByGroundAnimations[id] = d;
                     }
+                    foreach (XElement mmu in doc.Descendants("CharacterMMUAnimations"))
+                        if (mmu.Element(ArmExtendTag) is { } e && RefOf(e) is { } extend && (string?)mmu.Attribute("Id") is { } id)
+                            ArmExtendByMmuAnimations[id] = extend;
                 }
                 catch (Exception e)
                 {
@@ -78,18 +134,44 @@ internal static class AnimationExtensions
                 }
             }
         foreach ((string id, Declared d) in ByGroundAnimations)
-            Log.Info($"{id}: {d.IdleActions.Count} idle actions" + (d.LadderIdle is null ? "" : ", ladder idle") + (d.LadderDown is null ? "" : ", ladder down"));
+            Log.Info($"{id}: {d.IdleActions.Count} idle actions" + (d.LadderIdle is null ? "" : ", ladder idle")
+                     + (d.LadderDown is null ? "" : ", ladder down") + (d.Rcs.Count == 0 ? "" : $", {d.Rcs.Count} RCS clips")
+                     + (d.RcsOn is null ? "" : ", RCS on") + (d.RcsOff is null ? "" : ", RCS off"));
+        foreach (string id in ArmExtendByMmuAnimations.Keys)
+            Log.Info($"{id}: jetpack arm extend clip");
     }
 
     private sealed class State
     {
         public required List<AnimationAssetRef> IdleActions;
-        public AnimationAssetRef? LadderIdle, LadderDown, LadderUp;
+        public AnimationAssetRef? LadderIdle, LadderDown, LadderUp, RcsOn, RcsOff;
+        /// slot -> (the game's clip, the clip while RCS is on); and the pair samplers for both
+        public Dictionary<string, (AnimationAssetRef? Game, AnimationAssetRef Rcs)> Rcs = new();
+        public AnimationPairBlendSampler? GameWalkPair, GameRunPair, RcsWalkPair, RcsRunPair;
         public double Clock, NextAction;
-        public AnimationAssetRef? Playing;
+        public AnimationAssetRef? Playing;  // an idle action or an RCS toggle, played once to its end
         public double PlayingEnd;
+        public bool PlayingToggle;
+        public bool? RcsWas;
         public bool OnLadder, HoldingLadder, ClimbingDown;
         public double LadderStill;
+        public ArmSampler? Arms;
+    }
+
+    /// The jetpack's arms. The game has one arm clip, MMUArmRetractAnim (deployed -> stowed), and scrubs it back to its start
+    /// when RCS comes on and forward to its end when RCS goes off, so coming on it plays the stow backwards. With an extend
+    /// clip the arms play that forward instead, and each toggle plays its clip from the start, in step with the body's
+    /// toggle clip. The game keeps moving its scrub, which nothing samples any more.
+    internal sealed class ArmSampler : IAnimation
+    {
+        public required IAnimation Retract, Extend;
+        public bool Extending;
+        public float Time = float.MaxValue;  // at the end of the clip: deployed or stowed
+
+        private IAnimation Clip => Extending ? Extend : Retract;
+        public float AnimLength => Clip.AnimLength;
+        public void Sample(float time, Span<TransformTRS> output) => Clip.Sample(float.Min(Time, Clip.AnimLength), output);
+        public void SampleRotations(float time, Span<TransformTRS> output) => Clip.SampleRotations(float.Min(Time, Clip.AnimLength), output);
     }
 
     private static readonly ConditionalWeakTable<KittenRenderable, State> States = new();
@@ -111,32 +193,107 @@ internal static class AnimationExtensions
         }
     }
 
+    /// The jetpack's arms played by this mod, if the character's MMU animations have an extend clip.
+    private static ArmSampler? Arms(KittenRenderable r, CharacterReference? character, string characterId)
+    {
+        string? mmu = character?.CharacterMMUAnimations?.Id;
+        if (mmu is null || !ArmExtendByMmuAnimations.TryGetValue(mmu, out string? extendId))
+            return null;
+        CharacterAvatar.Mmu attachment = Avatar(r).Attachments.Mmu;
+        if (attachment.MmuMesh is null || attachment.ArmScrub is null || Load(extendId, characterId) is not { } extend)
+            return null;
+        ArmSampler arms = new() { Retract = Load(character!.CharacterMMUAnimations!.Get().MMUArmRetractAnim?.Id, characterId)!, Extend = extend };
+        if (arms.Retract is null)
+            return null;
+        attachment.MmuMesh.SetAnimation(arms, 0f);
+        return arms;
+    }
+
+    /// The game's walk and run pairs blend each clip with its low-gravity version (KittenRenderable's constructor).
+    private static AnimationPairBlendSampler? Pair(AnimationAssetRef? ground, AnimationAssetRef? lowGravity)
+        => ground != null && lowGravity != null ? new AnimationPairBlendSampler(ground, lowGravity) : null;
+
     /// A new standing model: load what its character declares, if anything.
     internal static void Attach(KittenRenderable r, string characterId)
     {
-        string? ground = Catalog.Find(characterId)?.Reference.CharacterGroundAnimations?.Id;
-        if (ground is null || !ByGroundAnimations.TryGetValue(ground, out Declared? d))
+        CharacterReference? character = Catalog.Find(characterId)?.Reference;
+        ArmSampler? arms = Arms(r, character, characterId);
+        string? ground = character?.CharacterGroundAnimations?.Id;
+        Declared d = ground != null && ByGroundAnimations.TryGetValue(ground, out Declared? declared) ? declared : new Declared();
+        if (!d.Any && arms is null)
             return;
-        States.AddOrUpdate(r, new State
+        State s = new()
         {
             IdleActions = d.IdleActions.Select(id => Load(id, characterId)).OfType<AnimationAssetRef>().ToList(),
             LadderIdle = Load(d.LadderIdle, characterId),
             LadderDown = Load(d.LadderDown, characterId),
             LadderUp = LadderAnim(r),
+            RcsOn = Load(d.RcsOn, characterId),
+            RcsOff = Load(d.RcsOff, characterId),
             NextAction = Wait(),
-        });
+            Arms = arms,
+        };
+        foreach ((string slot, string id) in d.Rcs)
+            if (Load(id, characterId) is { } clip)
+                s.Rcs[slot] = (SlotFields[slot](r), clip);
+        if (s.Rcs.Count > 0)
+        {
+            AnimationAssetRef? Clip(string slot, bool rcs) => s.Rcs.TryGetValue(slot, out var c) ? (rcs ? c.Rcs : c.Game) : SlotFields[slot](r);
+            s.GameWalkPair = WalkPair(r);
+            s.GameRunPair = RunPair(r);
+            s.RcsWalkPair = Pair(Clip("AnimWalk", true), Clip("AnimMoonWalk", true));
+            s.RcsRunPair = Pair(GroundRun(r), Clip("AnimMoonRun", true) ?? Clip("AnimMoonWalk", true));
+        }
+        States.AddOrUpdate(r, s);
     }
 
-    /// Before the game picks this frame's clip: advance the clock, and on a ladder put the clip that fits where the game will
-    /// look for its one ladder clip. The ladder position rises when climbing up (the forward key; its top hands over to the
-    /// ladder above), falls when climbing down and stays put when holding still; a jump of a whole rung or more is a hand-over
-    /// between ladders and keeps the direction. Between physics steps it stays put too, so the direction is remembered and the
-    /// hold pose waits for LadderHoldAfter.
-    internal static void BeforeUpdate(KittenRenderable r, float dt, in LocomotionState locomotion)
+    /// Before the game picks this frame's clip: advance the clock, put the RCS stance's clips where the game looks for its
+    /// ground clips, start an RCS toggle animation, and on a ladder put the clip that fits where the game looks for its one
+    /// ladder clip. The ladder position rises when climbing up (the forward key; its top hands over to the ladder above),
+    /// falls when climbing down and stays put when holding still; a jump of a whole rung or more is a hand-over between
+    /// ladders and keeps the direction. Between physics steps it stays put too, so the direction is remembered and the hold
+    /// pose waits for LadderHoldAfter.
+    internal static void BeforeUpdate(KittenRenderable r, float dt, in LocomotionState locomotion, bool rcs)
     {
         if (!States.TryGetValue(r, out State? s))
             return;
         s.Clock += dt;
+        Stance(r, s, rcs, dt, locomotion);
+        Ladder(r, s, dt, locomotion);
+    }
+
+    private static void Stance(KittenRenderable r, State s, bool rcs, float dt, in LocomotionState locomotion)
+    {
+        if (s.Rcs.Count > 0)
+        {
+            foreach ((string slot, (AnimationAssetRef? game, AnimationAssetRef rcsClip)) in s.Rcs)
+                SlotFields[slot](r) = rcs ? rcsClip : game;
+            WalkPair(r) = rcs ? s.RcsWalkPair ?? s.GameWalkPair : s.GameWalkPair;
+            RunPair(r) = rcs ? s.RcsRunPair ?? s.GameRunPair : s.GameRunPair;
+        }
+        bool toggled = s.RcsWas is { } was && was != rcs;
+        s.RcsWas = rcs;
+        if (s.Arms != null)
+        {
+            s.Arms.Time = toggled ? 0f : s.Arms.Time + dt;
+            s.Arms.Extending = rcs;
+        }
+        if (!toggled)
+            return;
+        // As in KSP, which only accepts the toggle while idle: the animation plays when standing still; moving, the stance
+        // just switches. It replaces an idle action in progress.
+        AnimationAssetRef? toggle = rcs ? s.RcsOn : s.RcsOff;
+        bool standing = locomotion.Mode == LocomotionMode.Grounded && locomotion.GroundSpeed < KittenLocomotionTuning.Current.IdleSpeedThreshold;
+        if (toggle != null && standing)
+        {
+            s.Playing = toggle;
+            s.PlayingEnd = s.Clock + toggle.AnimLength;
+            s.PlayingToggle = true;
+        }
+    }
+
+    private static void Ladder(KittenRenderable r, State s, float dt, in LocomotionState locomotion)
+    {
         s.HoldingLadder = false;
         s.OnLadder = locomotion.Mode == LocomotionMode.Ladder && (s.LadderIdle != null || s.LadderDown != null);
         if (!s.OnLadder)
@@ -165,10 +322,11 @@ internal static class AnimationExtensions
             Avatar(r).Core.CharacterModel.FreezeAnimation = false;
     }
 
-    /// Runs where the game picks the grounded clip. Returns false when an idle action plays instead of the game's choice.
-    internal static bool Ground(KittenRenderable r, AnimatedRenderable model, float groundSpeed)
+    /// Runs where the game picks the grounded clip. Returns false when an idle action or an RCS toggle plays instead of the
+    /// game's choice. Idle actions are for the relaxed stance only: with RCS on the hands stay on the controls.
+    internal static bool Ground(KittenRenderable r, AnimatedRenderable model, float groundSpeed, bool rcs)
     {
-        if (!States.TryGetValue(r, out State? s) || s.IdleActions.Count == 0)
+        if (!States.TryGetValue(r, out State? s))
             return true;
         KittenLocomotionTuning tuning = KittenLocomotionTuning.Current;
         if (groundSpeed >= tuning.IdleSpeedThreshold)  // moving: no action, and the idle wait starts over
@@ -177,14 +335,15 @@ internal static class AnimationExtensions
             s.NextAction = s.Clock + Wait();
             return true;
         }
-        if (s.Playing is null && s.Clock >= s.NextAction)
+        if (s.Playing is null && !rcs && s.IdleActions.Count > 0 && s.Clock >= s.NextAction)
         {
             s.Playing = s.IdleActions[Random.Shared.Next(s.IdleActions.Count)];
             s.PlayingEnd = s.Clock + s.Playing.AnimLength;
+            s.PlayingToggle = false;
         }
         if (s.Playing is null)
             return true;
-        if (s.Clock >= s.PlayingEnd)  // done: back to the game's idle
+        if (s.Clock >= s.PlayingEnd || (rcs && !s.PlayingToggle))  // done, or RCS came on during an idle action
         {
             s.Playing = null;
             s.NextAction = s.Clock + Wait();
@@ -200,7 +359,7 @@ internal static class AnimationExtensionsAttach
 {
     static void Postfix(KittenRenderable __instance, string characterId, bool seated)
     {
-        if (!seated)
+        if (!seated && GameMembers.AnimationOk)
             AnimationExtensions.Attach(__instance, characterId);
     }
 }
@@ -208,15 +367,22 @@ internal static class AnimationExtensionsAttach
 [HarmonyPatch(typeof(KittenRenderable), "UpdateLocomotionAnimationState")]
 internal static class AnimationExtensionsUpdate
 {
-    static void Prefix(KittenRenderable __instance, float simDt, ref LocomotionState locomotionState)
-        => AnimationExtensions.BeforeUpdate(__instance, simDt, in locomotionState);
+    static void Prefix(KittenRenderable __instance, float simDt, ref LocomotionState locomotionState, ref KittenAnimInputs animInputs)
+    {
+        if (GameMembers.AnimationOk)
+            AnimationExtensions.BeforeUpdate(__instance, simDt, in locomotionState, animInputs.RcsEnabled);
+    }
 
-    static void Postfix(KittenRenderable __instance) => AnimationExtensions.AfterUpdate(__instance);
+    static void Postfix(KittenRenderable __instance)
+    {
+        if (GameMembers.AnimationOk)
+            AnimationExtensions.AfterUpdate(__instance);
+    }
 }
 
 [HarmonyPatch(typeof(KittenRenderable), "UpdateGroundedClipSelection")]
 internal static class AnimationExtensionsIdle
 {
-    static bool Prefix(KittenRenderable __instance, AnimatedRenderable model, ref LocomotionState locomotionState)
-        => AnimationExtensions.Ground(__instance, model, locomotionState.GroundSpeed);
+    static bool Prefix(KittenRenderable __instance, AnimatedRenderable model, ref LocomotionState locomotionState, ref KittenAnimInputs animInputs)
+        => !GameMembers.AnimationOk || AnimationExtensions.Ground(__instance, model, locomotionState.GroundSpeed, animInputs.RcsEnabled);
 }

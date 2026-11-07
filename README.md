@@ -82,7 +82,7 @@ Idle variants on the ground:
 </CharacterGroundAnimations>
 ```
 
-The `CharacterManager.` prefix marks a line only this mod reads; the game skips it, so your mod still loads without Character Manager. A standing character plays a random one after 10 to 20 seconds of idle, then goes back to `AnimIdle`.
+The `CharacterManager.` prefix marks a line only this mod reads; the game skips it, so your mod still loads without Character Manager. Each tag points at its `GltfFile` with `Id`, as the game's own tags do today, or with `Ref`, the game's coming form for references. A standing character plays a random one after 10 to 20 seconds of idle, then goes back to `AnimIdle`.
 
 Ladder clips go right after `AnimLadder`, one of each at most:
 
