@@ -15,6 +15,8 @@ Open **View > Mods > Characters** in game.
 - **Fixed crew:** a mod can name crew that every new game starts with, e.g. Jebediah, Bill, Bob and Valentina Kerman from KSP Characters, while that mod is ticked. They join right after the game's own three, in place of random recruits. In a Testing start the first two are seated in the starting vehicles.
 - **Idle variety:** a crew member standing still on the ground plays one of their character's idle variants now and then, e.g. KSP's idle animations for the Kerbals of KSP Characters. The game has this only for seated crew and the jetpack.
 - **Ladders:** a character can have its own clips for holding still on a ladder and for climbing down; the game has one climbing clip for both directions and freezes it whenever the position doesn't change.
+- **RCS stance:** while the jetpack's RCS is on, a character can stand, walk and jump with its own clips, and play a toggle animation when RCS is turned on or off while standing. Its jetpack's arms can come out with their own clip, in step with the body; the game plays its one arm clip backwards.
+- **Jetpacks:** a character with its own jetpack can put the RCS puffs at that jetpack's thrusters. Only the visuals move; the thrust stays the game's. Untick "RCS puffs from the character's own jetpack" to see the game's positions.
 - **Current Game:** "Regenerate unused recruits" replaces the crew in the current game who have never flown, aren't seated and aren't on EVA, using the options above. Click it twice to confirm.
 
 The game's three starting crew, Hunter, Banjo and Polaris, are left as they are.
@@ -34,7 +36,7 @@ Character Manager is a code mod, so it needs the [StarMap](https://github.com/St
    enabled = true
    ```
 
-3. Start the game through StarMap.
+3. Start the game through StarMap (0.5.2 or later on KSA 2026.11.10.5801).
 
 ## For character mod authors: `characters.toml`
 
@@ -63,36 +65,54 @@ The name list has one name per line, optionally with a pool in front: `common-m 
 
 ### Animation extensions
 
-Animations the game has no slot for go in your asset XML, inside the character's `CharacterGroundAnimations`, each pointing at a `GltfFile` like the game's own clips:
-
-| Tag | Where | How many | Plays |
-| --- | --- | --- | --- |
-| `CharacterManager.AnimIdleAction` | after `AnimIdle` | any | an idle variant now and then while standing |
-| `CharacterManager.AnimLadderIdle` | after `AnimLadder` | one | while holding still on a ladder |
-| `CharacterManager.AnimLadderDown` | after `AnimLadder` | one | while climbing down a ladder |
-
-Idle variants on the ground:
+Animations the game has no slot for, and RCS puff positions, go in a `CharacterManager.xml` next to your `mod.toml`. It is written the way the game patches an asset: each block names one of your mod's own assets by `Id` with `Modify="Patch"`, and lists sit in a container. The clips themselves are ordinary `GltfFile`s in your asset XML.
 
 ```xml
-<CharacterGroundAnimations Id="MyGroundAnimations">
-    <AnimIdle Id="MyAnimIdleGlb"/>
-    <CharacterManager.AnimIdleAction Id="MyAnimIdleAGlb"/>
-    <CharacterManager.AnimIdleAction Id="MyAnimIdleBGlb"/>
-    ...
-</CharacterGroundAnimations>
+<Assets>
+    <CharacterGroundAnimations Id="MyGroundAnimations" Modify="Patch">
+        <CharacterManager.AnimIdleActions>
+            <GltfFile Ref="MyAnimIdleAGlb"/>
+            <GltfFile Ref="MyAnimIdleBGlb"/>
+        </CharacterManager.AnimIdleActions>
+        <CharacterManager.AnimLadderIdle Ref="MyAnimLadderIdleGlb"/>
+        <CharacterManager.AnimIdleRcs Ref="MyAnimIdleRcsGlb"/>
+        <CharacterManager.AnimRcsOn Ref="MyAnimRcsOnGlb"/>
+    </CharacterGroundAnimations>
+    <CharacterMMUAnimations Id="MyMMUAnimations" Modify="Patch">
+        <CharacterManager.MMUArmExtendAnim Ref="MyArmsExtendGlb"/>
+    </CharacterMMUAnimations>
+    <CharacterAttachment Id="MyJetpackAttachment" Modify="Patch">
+        <CharacterManager.RcsPuffs>
+            <RcsPuff Nozzle="TranslateRight1" X="-0.22" Y="-0.17" Z="-0.46" DX="0" DY="-1" DZ="0"/>
+        </CharacterManager.RcsPuffs>
+    </CharacterAttachment>
+</Assets>
 ```
 
-The `CharacterManager.` prefix marks a line only this mod reads; the game skips it, so your mod still loads without Character Manager. A standing character plays a random one after 10 to 20 seconds of idle, then goes back to `AnimIdle`.
+**Don't list this file in `mod.toml`'s `assets`.** The game doesn't know the `CharacterManager.` fields, and since KSA 2026.11.10.5801 it drops a whole asset that holds a field it doesn't know. Kept out of `assets`, the game never reads the file, so your mod loads the same with or without Character Manager.
 
-Ladder clips go right after `AnimLadder`, one of each at most:
+In `CharacterGroundAnimations`:
 
-```xml
-    <AnimLadder Id="MyAnimLadderUpGlb"/>
-    <CharacterManager.AnimLadderIdle Id="MyAnimLadderIdleGlb"/>   <!-- holding still -->
-    <CharacterManager.AnimLadderDown Id="MyAnimLadderDownGlb"/>   <!-- climbing down -->
-```
+| Field | How many | Plays |
+| --- | --- | --- |
+| `CharacterManager.AnimIdleActions` | a list of `GltfFile`s | an idle variant now and then while standing |
+| `CharacterManager.AnimLadderIdle` | one | while holding still on a ladder |
+| `CharacterManager.AnimLadderDown` | one | while climbing down a ladder |
+| `CharacterManager.Anim<slot>Rcs` | one per slot | instead of the slot while RCS is on; for `AnimIdle`, `AnimWalk`, `AnimMoonWalk`, `AnimMoonRun`, `AnimJump`, `AnimJumpLand`, `AnimTumble` |
+| `CharacterManager.AnimRcsOn` | one | once, when RCS is turned on while standing |
+| `CharacterManager.AnimRcsOff` | one | once, when RCS is turned off while standing |
 
-A character with either one also climbs smoothly: the game freezes its ladder clip between physics steps, and Character Manager lifts that freeze while it climbs.
+In `CharacterMMUAnimations`, `CharacterManager.MMUArmExtendAnim` is the jetpack's arms coming out when RCS is turned on. The game has only `MMUArmRetractAnim` and plays it backwards. The extend clip uses the same skeleton.
+
+In the jetpack's `CharacterAttachment`, `CharacterManager.RcsPuffs` lists one `RcsPuff` per nozzle of the game's EVA jetpack (`KittenBackPackSubPart` in `Core/PartGameData.xml`, e.g. `TranslateRight1`).
+- The coordinates are in that part's frame: metres, the feet at the origin, +X forward, +Y right, -Z up.
+- `X`, `Y`, `Z` are where the puff starts. `DX`, `DY`, `DZ`, optional, are the direction it blows.
+- Only the puffs, trails and exhaust light move; each nozzle still pushes from where the game puts it.
+
+How they play:
+- **Idle variants:** a standing character plays a random one after 10 to 20 seconds of idle, then goes back to `AnimIdle`.
+- **Ladder:** a character with either ladder clip also climbs smoothly. The game freezes its ladder clip between physics steps, and Character Manager lifts that freeze while it climbs.
+- **RCS toggles:** these play only when the character stands still, as in KSP. While moving, the stance just switches.
 
 [KSP Characters](https://github.com/paulo-santana/KSA-KSP-Characters) is a complete example.
 

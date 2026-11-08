@@ -12,6 +12,8 @@ internal sealed class Settings
 {
     /// Mods whose characters the game must not recruit.
     public HashSet<string> SkippedMods { get; set; } = new(StringComparer.Ordinal);
+    /// Draw RCS puffs where a character's own jetpack has its thrusters, when its mod says where they are.
+    public bool RcsPuffsAtJetpack { get; set; } = true;
 
     internal static Settings Current { get; private set; } = new();
 
