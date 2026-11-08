@@ -12,26 +12,33 @@ using RenderCore;
 
 namespace CharacterManager;
 
-/// Animations the game has no slot for. A character mod declares them in its own asset XML, next to the game's clips:
-///     <CharacterGroundAnimations Id="...">
-///         <AnimIdle Id="..."/>
-///         <CharacterManager.AnimIdleRcs Id="(a GltfFile id)"/>       while the jetpack's RCS is on (also Walk, MoonWalk,
-///                                                                    MoonRun, Jump, JumpLand, Tumble: Anim<slot>Rcs)
-///         <CharacterManager.AnimRcsOn Id="..."/>                    once, when RCS is turned on while standing still
-///         <CharacterManager.AnimRcsOff Id="..."/>                   once, when it is turned off while standing still
-///         <CharacterManager.AnimIdleAction Id="..."/>               any number: idle variants while standing
-///         <AnimLadder Id="..."/>
-///         <CharacterManager.AnimLadderIdle Id="..."/>               holding still on a ladder
-///         <CharacterManager.AnimLadderDown Id="..."/>               climbing down (the game plays the climb up both ways)
-///     <CharacterMMUAnimations Id="...">
-///         <MMUArmRetractAnim Id="..."/>
-///         <CharacterManager.MMUArmExtendAnim Id="..."/>             the jetpack's arms when RCS is turned on (see ArmSampler)
-/// The game reads asset XML with a plain XmlSerializer, which skips elements it does not know, so the file still loads
-/// without this mod; the prefix marks the lines as this mod's extension.
+/// Animations the game has no slot for. A character mod declares them in a CharacterManager.xml next to its mod.toml, written
+/// the way the game patches an asset: each block names one of the mod's own elements by Id with Modify="Patch", and lists sit in
+/// a container. The clips are GltfFiles of the mod's asset XML:
+///     <Assets>
+///         <CharacterGroundAnimations Id="(the mod's CharacterGroundAnimations)" Modify="Patch">
+///             <CharacterManager.AnimIdleRcs Ref="(a GltfFile)"/>    while the jetpack's RCS is on (also Walk, MoonWalk, MoonRun,
+///                                                                   Jump, JumpLand, Tumble: Anim<slot>Rcs)
+///             <CharacterManager.AnimRcsOn Ref="..."/>               once, when RCS is turned on while standing still
+///             <CharacterManager.AnimRcsOff Ref="..."/>              once, when it is turned off while standing still
+///             <CharacterManager.AnimLadderIdle Ref="..."/>          holding still on a ladder
+///             <CharacterManager.AnimLadderDown Ref="..."/>          climbing down (the game plays the climb up both ways)
+///             <CharacterManager.AnimIdleActions>                    idle variants while standing
+///                 <GltfFile Ref="..."/>
+///             </CharacterManager.AnimIdleActions>
+///         </CharacterGroundAnimations>
+///         <CharacterMMUAnimations Id="..." Modify="Patch">
+///             <CharacterManager.MMUArmExtendAnim Ref="..."/>        the jetpack's arms when RCS is turned on (see ArmSampler)
+///         </CharacterMMUAnimations>
+///         <CharacterAttachment Id="..." Modify="Patch">             RCS puffs (see RcsPuffs)
+///     </Assets>
+/// The game never reads the file (it isn't one of the mod's assets): since KSA 2026.11.10.5801 it drops a whole element that
+/// holds a field it doesn't know, so these can't sit in the asset XML.
 internal static class AnimationExtensions
 {
     internal const string Prefix = "CharacterManager.";
-    internal const string IdleActionTag = Prefix + "AnimIdleAction";
+    internal const string FileName = "CharacterManager.xml";
+    internal const string IdleActionsTag = Prefix + "AnimIdleActions";
     internal const string LadderIdleTag = Prefix + "AnimLadderIdle";
     internal const string LadderDownTag = Prefix + "AnimLadderDown";
     internal const string RcsOnTag = Prefix + "AnimRcsOn";
@@ -47,7 +54,6 @@ internal static class AnimationExtensions
     /// frames, so its climb hardly plays at all. For a character with ladder extras the freeze is lifted below.
     private const float LadderHoldAfter = 0.25f;
 
-    private static readonly FieldInfo? AssetsField = AccessTools.Field(typeof(Mod), "Assets");
     private static readonly MethodInfo? LoadClip = AccessTools.Method(typeof(KittenRenderable), "LoadGroundAnim");
     private static readonly AccessTools.FieldRef<KittenRenderable, AnimationAssetRef?> LadderAnim =
         AccessTools.FieldRefAccess<KittenRenderable, AnimationAssetRef?>("_ladderAnim");
@@ -84,9 +90,11 @@ internal static class AnimationExtensions
         public bool Any => IdleActions.Count > 0 || LadderIdle != null || LadderDown != null || RcsOn != null || RcsOff != null || Rcs.Count > 0;
     }
 
-    /// The asset a tag points at. KSA's XML is moving from Id to Ref for references (Id will only declare an asset); both
-    /// are read, Ref first.
+    /// The asset a tag points at (Ref; Id as before KSA 2026.11.10.5801).
     internal static string? RefOf(XElement e) => (string?)(e.Attribute("Ref") ?? e.Attribute("Id"));
+
+    /// The asset a block patches: its Id, as in the game's own Modify="Patch" blocks.
+    internal static string? IdOf(XElement e) => (string?)(e.Attribute("Id") ?? e.Attribute("Ref"));
 
     /// CharacterGroundAnimations id -> what it declares.
     internal static readonly Dictionary<string, Declared> ByGroundAnimations = new(StringComparer.Ordinal);
@@ -100,9 +108,10 @@ internal static class AnimationExtensions
         ArmExtendByMmuAnimations.Clear();
         RcsPuffs.ByAttachment.Clear();
         foreach (Mod mod in mods)
-            foreach (string asset in AssetsField?.GetValue(mod) as string[] ?? Array.Empty<string>())
             {
-                string path = Path.Combine(mod.DirectoryPath, asset);
+                string path = Path.Combine(mod.DirectoryPath, FileName);
+                if (!File.Exists(path))
+                    continue;
                 try
                 {
                     XDocument doc = XDocument.Load(path);
@@ -112,7 +121,7 @@ internal static class AnimationExtensions
                         string? Id(string tag) => ground.Element(tag) is { } e ? RefOf(e) : null;
                         Declared d = new()
                         {
-                            IdleActions = ground.Elements(IdleActionTag).Select(RefOf).OfType<string>().ToList(),
+                            IdleActions = ground.Element(IdleActionsTag)?.Elements("GltfFile").Select(RefOf).OfType<string>().ToList() ?? new(),
                             LadderIdle = Id(LadderIdleTag),
                             LadderDown = Id(LadderDownTag),
                             RcsOn = Id(RcsOnTag),
@@ -121,16 +130,16 @@ internal static class AnimationExtensions
                         foreach (string slot in RcsSlots)
                             if (Id(Prefix + slot + "Rcs") is { } rcs)
                                 d.Rcs[slot] = rcs;
-                        if (d.Any && (string?)ground.Attribute("Id") is { } id)
+                        if (d.Any && IdOf(ground) is { } id)
                             ByGroundAnimations[id] = d;
                     }
                     foreach (XElement mmu in doc.Descendants("CharacterMMUAnimations"))
-                        if (mmu.Element(ArmExtendTag) is { } e && RefOf(e) is { } extend && (string?)mmu.Attribute("Id") is { } id)
+                        if (mmu.Element(ArmExtendTag) is { } e && RefOf(e) is { } extend && IdOf(mmu) is { } id)
                             ArmExtendByMmuAnimations[id] = extend;
                 }
                 catch (Exception e)
                 {
-                    Log.Error($"{mod.Id}/{asset} could not be read for animation extensions", e);
+                    Log.Error($"{mod.Id}/{FileName} could not be read", e);
                 }
             }
         foreach ((string id, Declared d) in ByGroundAnimations)
@@ -184,7 +193,9 @@ internal static class AnimationExtensions
             return null;
         try
         {
-            return LoadClip?.Invoke(null, new object?[] { ModLibrary.Get<Gltf2Reference>(id) }) as AnimationAssetRef;
+            // the game's loader takes a reference since KSA 2026.11.10.5801, and only reads its resolved Value
+            DataReference<Gltf2Reference> clip = new() { Ref = id, Value = ModLibrary.Get<Gltf2Reference>(id) };
+            return LoadClip?.Invoke(null, new object?[] { clip }) as AnimationAssetRef;
         }
         catch (Exception e)
         {
@@ -196,13 +207,13 @@ internal static class AnimationExtensions
     /// The jetpack's arms played by this mod, if the character's MMU animations have an extend clip.
     private static ArmSampler? Arms(KittenRenderable r, CharacterReference? character, string characterId)
     {
-        string? mmu = character?.CharacterMMUAnimations?.Id;
+        string? mmu = character?.CharacterMMUAnimations?.Ref;
         if (mmu is null || !ArmExtendByMmuAnimations.TryGetValue(mmu, out string? extendId))
             return null;
         CharacterAvatar.Mmu attachment = Avatar(r).Attachments.Mmu;
         if (attachment.MmuMesh is null || attachment.ArmScrub is null || Load(extendId, characterId) is not { } extend)
             return null;
-        ArmSampler arms = new() { Retract = Load(character!.CharacterMMUAnimations!.Get().MMUArmRetractAnim?.Id, characterId)!, Extend = extend };
+        ArmSampler arms = new() { Retract = Load(character!.CharacterMMUAnimations!.Value!.MMUArmRetractAnim?.Ref, characterId)!, Extend = extend };
         if (arms.Retract is null)
             return null;
         attachment.MmuMesh.SetAnimation(arms, 0f);
@@ -218,7 +229,7 @@ internal static class AnimationExtensions
     {
         CharacterReference? character = Catalog.Find(characterId)?.Reference;
         ArmSampler? arms = Arms(r, character, characterId);
-        string? ground = character?.CharacterGroundAnimations?.Id;
+        string? ground = character?.CharacterGroundAnimations?.Ref;
         Declared d = ground != null && ByGroundAnimations.TryGetValue(ground, out Declared? declared) ? declared : new Declared();
         if (!d.Any && arms is null)
             return;

@@ -22,8 +22,10 @@ public class CharacterManagerMod
         GameMembers.Patch(new Harmony(Id));
     }
 
-    [StarMapAllModsLoaded]
-    public void AllModsLoaded()
+    /// After the game has loaded every mod's content (AllModsLoad below). Not StarMap's [StarMapAllModsLoaded]: StarMap calls
+    /// that with ModLibrary.LoadAll's arguments, and since KSA 2026.11.10.5801 LoadAll takes one while the attribute only
+    /// accepts a method without parameters, so it is never called.
+    internal static void AllModsLoaded()
     {
         try
         {
@@ -39,6 +41,12 @@ public class CharacterManagerMod
 
     [StarMapAfterGui]
     public void Gui(double dt) => Window.Draw();
+}
+
+[HarmonyPatch(typeof(ModLibrary), nameof(ModLibrary.LoadAll))]
+internal static class AllModsLoad
+{
+    static void Postfix() => CharacterManagerMod.AllModsLoaded();
 }
 
 internal static class Log

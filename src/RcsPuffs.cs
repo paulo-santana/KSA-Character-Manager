@@ -12,16 +12,18 @@ namespace CharacterManager;
 /// RCS puff positions for characters that wear their own jetpack. An EVA kitten's thrusters belong to the shared EVA part
 /// (KittenBackPackSubPart): each nozzle pushes from ExhaustLocation and draws its puff at FxExhaustLocation, which only the
 /// exhaust visuals read (plumes, trails, sparks, the exhaust light), blowing along FxExhaustDirection. A character mod can
-/// give its jetpack attachment its own puffs, in the part's frame (metres, feet at the origin, +X forward, +Y right, -Z up):
-///     <CharacterAttachment Id="...">
-///         ...
-///         <CharacterManager.RcsPuff Nozzle="TranslateRight1" X="..." Y="..." Z="..." DX="..." DY="..." DZ="..."/>
+/// give its jetpack attachment its own puffs in its CharacterManager.xml (see AnimationExtensions), in the part's frame (metres,
+/// feet at the origin, +X forward, +Y right, -Z up):
+///     <CharacterAttachment Id="(the jetpack attachment)" Modify="Patch">
+///         <CharacterManager.RcsPuffs>
+///             <RcsPuff Nozzle="TranslateRight1" X="..." Y="..." Z="..." DX="..." DY="..." DZ="..."/>
+///         </CharacterManager.RcsPuffs>
 /// (DX/DY/DZ, the direction the puff blows, are optional.)
 /// They are applied to the EVA kittens wearing that attachment while the option is on, and undone when it is off. The
 /// thrust positions stay the game's.
 internal static class RcsPuffs
 {
-    internal const string Tag = AnimationExtensions.Prefix + "RcsPuff";
+    internal const string Tag = AnimationExtensions.Prefix + "RcsPuffs";
 
     /// CharacterAttachment id -> nozzle template id -> puff position and, if given, direction.
     internal static readonly Dictionary<string, Dictionary<string, (float3 At, float3? Dir)>> ByAttachment = new(StringComparer.Ordinal);
@@ -31,7 +33,7 @@ internal static class RcsPuffs
         foreach (XElement attachment in doc.Descendants("CharacterAttachment"))
         {
             Dictionary<string, (float3, float3?)> puffs = new(StringComparer.Ordinal);
-            foreach (XElement e in attachment.Elements(Tag))
+            foreach (XElement e in attachment.Element(Tag)?.Elements("RcsPuff") ?? Enumerable.Empty<XElement>())
                 if ((string?)e.Attribute("Nozzle") is { } nozzle)
                 {
                     float3 at = new((float?)e.Attribute("X") ?? 0f, (float?)e.Attribute("Y") ?? 0f, (float?)e.Attribute("Z") ?? 0f);
@@ -39,7 +41,7 @@ internal static class RcsPuffs
                         : new float3((float?)e.Attribute("DX") ?? 0f, (float?)e.Attribute("DY") ?? 0f, (float?)e.Attribute("DZ") ?? 0f);
                     puffs[nozzle] = (at, dir);
                 }
-            if (puffs.Count > 0 && (string?)attachment.Attribute("Id") is { } id)
+            if (puffs.Count > 0 && AnimationExtensions.IdOf(attachment) is { } id)
             {
                 ByAttachment[id] = puffs;
                 Log.Info($"{id}: {puffs.Count} RCS puff positions");
@@ -52,7 +54,7 @@ internal static class RcsPuffs
 
     internal static void Update(KittenEva kitten)
     {
-        string? attachment = kitten.Character?.CharacterMMU?.Id;
+        string? attachment = kitten.Character?.CharacterMMU?.Ref;
         bool want = Settings.Current.RcsPuffsAtJetpack && attachment != null && ByAttachment.ContainsKey(attachment);
         bool moved = Moved.TryGetValue(kitten, out Dictionary<RocketNozzle, (float3 At, float3 Dir)>? original);
         if (want == moved)
