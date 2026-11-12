@@ -19,6 +19,7 @@ internal static class GameMembers
         (typeof(KittenRenderable), "_moonWalkAnim"), (typeof(KittenRenderable), "_moonRunAnim"),
         (typeof(KittenRenderable), "_jumpIntroAnim"), (typeof(KittenRenderable), "_jumpLandAnim"),
         (typeof(KittenRenderable), "_flailAnim"), (typeof(KittenRenderable), "LoadGroundAnim"),
+        (typeof(KittenRenderable), "_blendSampler"), (typeof(KittenRenderable), "UpdateMmuBodyAnimationAsset"),
     };
 
     /// Every member the animation extensions need exists.
