@@ -19,8 +19,8 @@ namespace CharacterManager;
 ///         <CharacterGroundAnimations Id="(the mod's CharacterGroundAnimations)" Modify="Patch">
 ///             <CharacterManager.AnimIdleRcs Ref="(a GltfFile)"/>    while the jetpack's RCS is on (also Walk, MoonWalk, MoonRun,
 ///                                                                   Jump, JumpLand, Tumble: Anim<slot>Rcs)
-///             <CharacterManager.AnimRcsOn Ref="..."/>               once, when RCS is turned on while standing still
-///             <CharacterManager.AnimRcsOff Ref="..."/>              once, when it is turned off while standing still
+///             <CharacterManager.AnimRcsOn Ref="..."/>               once, when RCS is turned on standing still
+///             <CharacterManager.AnimRcsOff Ref="..."/>              once, when it is turned off standing still
 ///             <CharacterManager.AnimLadderIdle Ref="..."/>          holding still on a ladder
 ///             <CharacterManager.AnimLadderDown Ref="..."/>          climbing down (the game plays the climb up both ways)
 ///             <CharacterManager.AnimIdleActions>                    idle variants while standing
@@ -29,6 +29,9 @@ namespace CharacterManager;
 ///         </CharacterGroundAnimations>
 ///         <CharacterMMUAnimations Id="..." Modify="Patch">
 ///             <CharacterManager.MMUArmExtendAnim Ref="..."/>        the jetpack's arms when RCS is turned on (see ArmSampler)
+///             <CharacterManager.MMUFloatAnim Ref="..."/>            floating with RCS off, instead of MMUIdleDefaultAnim
+///             <CharacterManager.MMUFloatRcsOnAnim Ref="..."/>       once, when RCS is turned on floating (the arms only)
+///             <CharacterManager.MMUFloatRcsOffAnim Ref="..."/>      once, when it is turned off floating
 ///         </CharacterMMUAnimations>
 ///         <CharacterAttachment Id="..." Modify="Patch">             RCS puffs (see RcsPuffs)
 ///     </Assets>
@@ -44,6 +47,9 @@ internal static class AnimationExtensions
     internal const string RcsOnTag = Prefix + "AnimRcsOn";
     internal const string RcsOffTag = Prefix + "AnimRcsOff";
     internal const string ArmExtendTag = Prefix + "MMUArmExtendAnim";
+    internal const string FloatTag = Prefix + "MMUFloatAnim";
+    internal const string FloatRcsOnTag = Prefix + "MMUFloatRcsOnAnim";
+    internal const string FloatRcsOffTag = Prefix + "MMUFloatRcsOffAnim";
     /// The game's ground slots that have a version while RCS is on, as Anim<slot>Rcs.
     internal static readonly string[] RcsSlots = { "AnimIdle", "AnimWalk", "AnimMoonWalk", "AnimMoonRun", "AnimJump", "AnimJumpLand", "AnimTumble" };
     /// Seconds a character stands idle before an idle action starts, picked anew each time.
@@ -65,6 +71,8 @@ internal static class AnimationExtensions
         AccessTools.FieldRefAccess<KittenRenderable, AnimationPairBlendSampler?>("_walkPairSampler");
     private static readonly AccessTools.FieldRef<KittenRenderable, AnimationPairBlendSampler?> RunPair =
         AccessTools.FieldRefAccess<KittenRenderable, AnimationPairBlendSampler?>("_runPairSampler");
+    private static readonly AccessTools.FieldRef<KittenRenderable, AnimationDirectionalBlendSampler> MmuBlend =
+        AccessTools.FieldRefAccess<KittenRenderable, AnimationDirectionalBlendSampler>("_blendSampler");
     private static readonly AccessTools.FieldRef<KittenRenderable, AnimationAssetRef?> GroundRun =
         AccessTools.FieldRefAccess<KittenRenderable, AnimationAssetRef?>("_groundRunAnim");
     /// The renderable's clip field of each RCS slot (walk and low-gravity clips are also blended in the pair samplers).
@@ -102,10 +110,17 @@ internal static class AnimationExtensions
     /// CharacterMMUAnimations id -> its arm extend clip (a GltfFile id).
     internal static readonly Dictionary<string, string> ArmExtendByMmuAnimations = new(StringComparer.Ordinal);
 
+    /// CharacterMMUAnimations id -> its clip for floating with RCS off (a GltfFile id).
+    internal static readonly Dictionary<string, string> FloatByMmuAnimations = new(StringComparer.Ordinal);
+    /// CharacterMMUAnimations id -> the arms-only RCS toggles while floating (on, off)
+    internal static readonly Dictionary<string, (string? On, string? Off)> FloatTogglesByMmuAnimations = new(StringComparer.Ordinal);
+
     internal static void Read(IEnumerable<Mod> mods)
     {
         ByGroundAnimations.Clear();
         ArmExtendByMmuAnimations.Clear();
+        FloatByMmuAnimations.Clear();
+        FloatTogglesByMmuAnimations.Clear();
         RcsPuffs.ByAttachment.Clear();
         foreach (Mod mod in mods)
             {
@@ -134,8 +149,18 @@ internal static class AnimationExtensions
                             ByGroundAnimations[id] = d;
                     }
                     foreach (XElement mmu in doc.Descendants("CharacterMMUAnimations"))
-                        if (mmu.Element(ArmExtendTag) is { } e && RefOf(e) is { } extend && IdOf(mmu) is { } id)
+                    {
+                        if (IdOf(mmu) is not { } id)
+                            continue;
+                        if (mmu.Element(ArmExtendTag) is { } arms && RefOf(arms) is { } extend)
                             ArmExtendByMmuAnimations[id] = extend;
+                        if (mmu.Element(FloatTag) is { } floating && RefOf(floating) is { } clip)
+                            FloatByMmuAnimations[id] = clip;
+                        string? on = mmu.Element(FloatRcsOnTag) is { } onTag ? RefOf(onTag) : null;
+                        string? off = mmu.Element(FloatRcsOffTag) is { } offTag ? RefOf(offTag) : null;
+                        if (on != null || off != null)
+                            FloatTogglesByMmuAnimations[id] = (on, off);
+                    }
                 }
                 catch (Exception e)
                 {
@@ -146,8 +171,10 @@ internal static class AnimationExtensions
             Log.Info($"{id}: {d.IdleActions.Count} idle actions" + (d.LadderIdle is null ? "" : ", ladder idle")
                      + (d.LadderDown is null ? "" : ", ladder down") + (d.Rcs.Count == 0 ? "" : $", {d.Rcs.Count} RCS clips")
                      + (d.RcsOn is null ? "" : ", RCS on") + (d.RcsOff is null ? "" : ", RCS off"));
-        foreach (string id in ArmExtendByMmuAnimations.Keys)
-            Log.Info($"{id}: jetpack arm extend clip");
+        foreach (string id in ArmExtendByMmuAnimations.Keys.Union(FloatByMmuAnimations.Keys).Union(FloatTogglesByMmuAnimations.Keys))
+            Log.Info($"{id}: " + string.Join(", ", new[] { ArmExtendByMmuAnimations.ContainsKey(id) ? "jetpack arm extend clip" : null,
+                                                            FloatByMmuAnimations.ContainsKey(id) ? "floating clip" : null,
+                                                            FloatTogglesByMmuAnimations.ContainsKey(id) ? "floating RCS toggles" : null }.OfType<string>()));
     }
 
     private sealed class State
@@ -165,6 +192,9 @@ internal static class AnimationExtensions
         public bool OnLadder, HoldingLadder, ClimbingDown;
         public double LadderStill;
         public ArmSampler? Arms;
+        /// floating with RCS off, and the game's MMU idle it stands in for
+        public AnimationAssetRef? Float, FloatRcsOn, FloatRcsOff, MmuIdle;
+        public bool WasMmu, WasToggle;
     }
 
     /// The jetpack's arms. The game has one arm clip, MMUArmRetractAnim (deployed -> stowed), and scrubs it back to its start
@@ -231,7 +261,11 @@ internal static class AnimationExtensions
         ArmSampler? arms = Arms(r, character, characterId);
         string? ground = character?.CharacterGroundAnimations?.Ref;
         Declared d = ground != null && ByGroundAnimations.TryGetValue(ground, out Declared? declared) ? declared : new Declared();
-        if (!d.Any && arms is null)
+        string? mmu = character?.CharacterMMUAnimations?.Ref;
+        AnimationAssetRef? floating = mmu != null && FloatByMmuAnimations.TryGetValue(mmu, out string? floatId) ? Load(floatId, characterId) : null;
+        (string? floatOn, string? floatOff) = mmu != null && FloatTogglesByMmuAnimations.TryGetValue(mmu, out var floatToggles) ? floatToggles : default;
+        AnimationAssetRef? floatRcsOn = Load(floatOn, characterId), floatRcsOff = Load(floatOff, characterId);
+        if (!d.Any && arms is null && floating is null && floatRcsOn is null && floatRcsOff is null)
             return;
         State s = new()
         {
@@ -243,6 +277,10 @@ internal static class AnimationExtensions
             RcsOff = Load(d.RcsOff, characterId),
             NextAction = Wait(),
             Arms = arms,
+            Float = floating,
+            FloatRcsOn = floatRcsOn,
+            FloatRcsOff = floatRcsOff,
+            MmuIdle = Avatar(r).Animations.MmuAnimations.MmuIdleDefaultAnim,
         };
         foreach ((string slot, string id) in d.Rcs)
             if (Load(id, characterId) is { } clip)
@@ -259,7 +297,7 @@ internal static class AnimationExtensions
     }
 
     /// Before the game picks this frame's clip: advance the clock, put the RCS stance's clips where the game looks for its
-    /// ground clips, start an RCS toggle animation, and on a ladder put the clip that fits where the game looks for its one
+    /// ground clips and the floating clip where it looks for its MMU idle, start an RCS toggle animation, and on a ladder put the clip that fits where the game looks for its one
     /// ladder clip. The ladder position rises when climbing up (the forward key; its top hands over to the ladder above),
     /// falls when climbing down and stays put when holding still; a jump of a whole rung or more is a hand-over between
     /// ladders and keeps the direction. Between physics steps it stays put too, so the direction is remembered and the hold
@@ -269,6 +307,8 @@ internal static class AnimationExtensions
         if (!States.TryGetValue(r, out State? s))
             return;
         s.Clock += dt;
+        if (locomotion.Mode != LocomotionMode.Mmu)
+            s.WasMmu = false;
         Stance(r, s, rcs, dt, locomotion);
         Ladder(r, s, dt, locomotion);
     }
@@ -289,17 +329,55 @@ internal static class AnimationExtensions
             s.Arms.Time = toggled ? 0f : s.Arms.Time + dt;
             s.Arms.Extending = rcs;
         }
-        if (!toggled)
-            return;
-        // As in KSP, which only accepts the toggle while idle: the animation plays when standing still; moving, the stance
-        // just switches. It replaces an idle action in progress.
-        AnimationAssetRef? toggle = rcs ? s.RcsOn : s.RcsOff;
+        bool floating = locomotion.Mode is LocomotionMode.Airborne or LocomotionMode.Mmu;
+        // As in KSP, which only accepts the toggle while idle: the animation plays when standing still or floating; walking,
+        // the stance just switches. It replaces an idle action in progress. Floating has its own clips, with only the arms
+        // moving: the ground ones are standing poses and would pull the legs down.
+        AnimationAssetRef? toggle = floating ? (rcs ? s.FloatRcsOn : s.FloatRcsOff) : rcs ? s.RcsOn : s.RcsOff;
         bool standing = locomotion.Mode == LocomotionMode.Grounded && locomotion.GroundSpeed < KittenLocomotionTuning.Current.IdleSpeedThreshold;
-        if (toggle != null && standing)
+        if (toggled && toggle != null && (standing || floating))
         {
             s.Playing = toggle;
             s.PlayingEnd = s.Clock + toggle.AnimLength;
             s.PlayingToggle = true;
+        }
+        else if (s.Playing != null && s.PlayingToggle && s.Clock >= s.PlayingEnd && floating)
+            s.Playing = null;
+        // With RCS off the game is in Airborne mode, floating or falling, and plays the MMU idle every frame: the floating clip
+        // and the toggle go there. With RCS on (Mmu mode) it blends the MMU clips by thrust and leaves the clip alone without
+        // thrust, so AfterMmu plays the toggle there.
+        if (s.Float != null || s.FloatRcsOn != null || s.FloatRcsOff != null)
+            Avatar(r).Animations.MmuAnimations.MmuIdleDefaultAnim = locomotion.Mode == LocomotionMode.Airborne
+                ? (s.PlayingToggle ? s.Playing : null) ?? s.Float ?? s.MmuIdle : s.MmuIdle;
+    }
+
+    /// After the game's Mmu-mode clip choice. Thrust plays the game's blend and cuts a toggle short. Without thrust the game
+    /// sets no clip (it only does for MMU idle actions), so the toggle plays here, and the MMU idle comes back once after it ends
+    /// or when the character comes out of Airborne mode, whose clip (the floating one, or a toggle) would otherwise stay on.
+    internal static void AfterMmu(KittenRenderable r)
+    {
+        if (!States.TryGetValue(r, out State? s))
+            return;
+        AnimatedRenderable model = Avatar(r).Core.CharacterModel;
+        float blend = KittenLocomotionTuning.Current.AnimBlendTime;
+        bool entered = !s.WasMmu;
+        s.WasMmu = true;
+        bool toggle = s.Playing != null && s.PlayingToggle;
+        if (MmuBlend(r).BlendSamplePosition.Length() > 0.001f)  // thrust this frame: the game played its blend, as it tests
+        {
+            if (toggle)
+                s.Playing = null;
+            return;
+        }
+        if (toggle)
+        {
+            model.SetAnimation(s.Playing!, blend);
+            s.WasToggle = true;
+        }
+        else if ((entered || s.WasToggle) && s.MmuIdle != null)
+        {
+            model.SetAnimation(s.MmuIdle, blend);
+            s.WasToggle = false;
         }
     }
 
@@ -388,6 +466,16 @@ internal static class AnimationExtensionsUpdate
     {
         if (GameMembers.AnimationOk)
             AnimationExtensions.AfterUpdate(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(KittenRenderable), "UpdateMmuBodyAnimationAsset")]
+internal static class AnimationExtensionsMmu
+{
+    static void Postfix(KittenRenderable __instance)
+    {
+        if (GameMembers.AnimationOk)
+            AnimationExtensions.AfterMmu(__instance);
     }
 }
 
