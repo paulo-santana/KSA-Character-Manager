@@ -22,6 +22,15 @@ internal static class GameMembers
         (typeof(KittenRenderable), "_blendSampler"), (typeof(KittenRenderable), "UpdateMmuBodyAnimationAsset"),
     };
 
+    private static readonly (Type Type, string Name)[] Expression =
+    {
+        (typeof(KittenRenderable), "_seated"), (typeof(KittenRenderable), "_isPlayingIdleAction"), (typeof(KittenRenderable), "_idleActionEndTime"),
+        (typeof(KittenRenderable), "AdvanceIdleActionSchedule"), (typeof(KittenEva), "_locomotionState"),
+    };
+
+    /// Every member the Kerbals' expression logic needs exists.
+    internal static readonly bool ExpressionOk = Check(Expression, "expression logic");
+
     /// Every member the animation extensions need exists.
     internal static readonly bool AnimationOk = Check(Animation, "animation extensions");
 

@@ -121,6 +121,7 @@ internal static class AnimationExtensions
         ArmExtendByMmuAnimations.Clear();
         FloatByMmuAnimations.Clear();
         FloatTogglesByMmuAnimations.Clear();
+        FaceBlend.Clear();
         RcsPuffs.ByAttachment.Clear();
         foreach (Mod mod in mods)
             {
@@ -148,6 +149,8 @@ internal static class AnimationExtensions
                         if (d.Any && IdOf(ground) is { } id)
                             ByGroundAnimations[id] = d;
                     }
+                    foreach (XElement expressions in doc.Descendants("CharacterExpressions"))
+                        FaceBlend.Read(expressions);
                     foreach (XElement mmu in doc.Descendants("CharacterMMUAnimations"))
                     {
                         if (IdOf(mmu) is not { } id)
@@ -171,6 +174,8 @@ internal static class AnimationExtensions
             Log.Info($"{id}: {d.IdleActions.Count} idle actions" + (d.LadderIdle is null ? "" : ", ladder idle")
                      + (d.LadderDown is null ? "" : ", ladder down") + (d.Rcs.Count == 0 ? "" : $", {d.Rcs.Count} RCS clips")
                      + (d.RcsOn is null ? "" : ", RCS on") + (d.RcsOff is null ? "" : ", RCS off"));
+        foreach ((string id, FaceBlend.Declared face) in FaceBlend.ByExpressions)
+            Log.Info($"{id}: face blend of {face.Bones.Length} bones");
         foreach (string id in ArmExtendByMmuAnimations.Keys.Union(FloatByMmuAnimations.Keys).Union(FloatTogglesByMmuAnimations.Keys))
             Log.Info($"{id}: " + string.Join(", ", new[] { ArmExtendByMmuAnimations.ContainsKey(id) ? "jetpack arm extend clip" : null,
                                                             FloatByMmuAnimations.ContainsKey(id) ? "floating clip" : null,
@@ -217,7 +222,7 @@ internal static class AnimationExtensions
 
     private static double Wait() => MinWait + Random.Shared.NextDouble() * (MaxWait - MinWait);
 
-    private static AnimationAssetRef? Load(string? id, string characterId)
+    internal static AnimationAssetRef? Load(string? id, string characterId)
     {
         if (id is null)
             return null;
@@ -253,6 +258,10 @@ internal static class AnimationExtensions
     /// The game's walk and run pairs blend each clip with its low-gravity version (KittenRenderable's constructor).
     private static AnimationPairBlendSampler? Pair(AnimationAssetRef? ground, AnimationAssetRef? lowGravity)
         => ground != null && lowGravity != null ? new AnimationPairBlendSampler(ground, lowGravity) : null;
+
+    /// A new model, standing or seated: its character's face blend, if it declares one.
+    internal static void AttachFace(KittenRenderable r, string characterId)
+        => FaceBlend.Attach(r, Avatar(r), Catalog.Find(characterId)?.Reference, characterId);
 
     /// A new standing model: load what its character declares, if anything.
     internal static void Attach(KittenRenderable r, string characterId)
@@ -448,7 +457,10 @@ internal static class AnimationExtensionsAttach
 {
     static void Postfix(KittenRenderable __instance, string characterId, bool seated)
     {
-        if (!seated && GameMembers.AnimationOk)
+        if (!GameMembers.AnimationOk)
+            return;
+        AnimationExtensions.AttachFace(__instance, characterId);
+        if (!seated)
             AnimationExtensions.Attach(__instance, characterId);
     }
 }
