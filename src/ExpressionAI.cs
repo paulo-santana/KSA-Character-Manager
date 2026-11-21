@@ -32,7 +32,7 @@ internal static class ExpressionAI
     /// What the game's vehicle says about the Kerbal, refreshed every frame by the two hooks below.
     internal sealed class Inputs
     {
-        public bool Seated, Jetpack, GroundedIdle, Falling;
+        public bool Seated, Jetpack, GroundedIdle, Falling, Contact;
         public string Kitten = "";
         /// Speed as KSP's physics body has it (see the class comment), the real surface speed, the climb rate, the altitude above
         /// the ground, the g-force (proper acceleration over standard gravity) and the body's rotation rate.
@@ -56,9 +56,10 @@ internal static class ExpressionAI
             i.Kitten = kitten ?? "";
             i.SurfaceSpeed = v.GetSurfaceSpeed();
             i.RadarAltitude = v.GetRadarAltitude();
+            i.Contact = v.Situation.HasAnyContact();
             i.VerticalSpeed = double3.Dot(v.Orbit.StateVectors.VelocityCci, v.Orbit.StateVectors.PositionCci.Normalized());
             // KSP's Krakensbane takes the speed above 5 m/s off its physics body once clear of the ground
-            bool nearGround = v.Situation.HasAnyContact() || i.RadarAltitude < (seated ? SeatedKrakensbaneAltitude : EvaKrakensbaneAltitude);
+            bool nearGround = i.Contact || i.RadarAltitude < (seated ? SeatedKrakensbaneAltitude : EvaKrakensbaneAltitude);
             i.Speed = nearGround ? i.SurfaceSpeed : Math.Min(i.SurfaceSpeed, KrakensbaneSpeed);
             // as the game's own G-FORCE readout: its acceleration measurement (gravity taken out) in standard gravities
             double3 acceleration = v.AccelerationBody;
@@ -132,6 +133,9 @@ internal static class ExpressionAI
         internal float GExperienced, GNormalized, Gee = 1f;
         /// Seated only: the Kerbal has been calm for a while, so KSP's animator is in its idle state; and the idle's clip choice
         internal bool IsIdle, ActionRequested;
+        /// Whether an idle clip may play now: the Kerbal is calm (KSP's rule, and then the face goes neutral) or cheerful and not
+        /// frightened (KSA's addition: a Kerbal floating in orbit keeps its cheer and still fidgets now and then)
+        internal bool CanIdleAction;
         internal float IdleTimer;
         private float _targetVariance, _targetSecondary, _varianceTimer, _secondaryTimer;
         /// KSP's smoothing windows: the acceleration over its last 20 physics frames, the seated expression target over 20 updates (0.4 s)
@@ -148,17 +152,21 @@ internal static class ExpressionAI
             _known = true;
         }
 
-        /// KSP's variances: a new random target every second, approached at 1 per second.
+        /// The values KSP's Kerbal prefabs set on kerbalExpressionSystem (not the class's own defaults, which are 1 s for both
+        /// intervals and 1 for the expression's rate): the face blend wanders slowly, a new target every 4 and 5 seconds.
+        private const float ExpressionLerpRate = 3f, VarianceInterval = 4f, SecondaryInterval = 5f;
+
+        /// KSP's variances: a new random target every few seconds, approached at 1 per second.
         internal void WanderVariance(float dt)
         {
-            Step(ref Variance, ref _targetVariance, ref _varianceTimer, dt);
-            Step(ref Secondary, ref _targetSecondary, ref _secondaryTimer, dt);
+            Step(ref Variance, ref _targetVariance, ref _varianceTimer, VarianceInterval, dt);
+            Step(ref Secondary, ref _targetSecondary, ref _secondaryTimer, SecondaryInterval, dt);
         }
 
-        private static void Step(ref float value, ref float target, ref float timer, float dt)
+        private static void Step(ref float value, ref float target, ref float timer, float interval, float dt)
         {
             timer += dt;
-            if (timer >= 1f)
+            if (timer >= interval)
             {
                 timer = 0f;
                 target = Random.Shared.NextSingle();
@@ -175,8 +183,10 @@ internal static class ExpressionAI
                 Gee = _acceleration.Mean.Length() / (float)StandardGravity;
             }
             AccumulateG(i is null ? 1f : Gee, dt);
-            // KSP counts the g-force only while descending; otherwise it takes 1 g, which cheers nothing
-            float gee = i is null || i.VerticalSpeed >= 0 ? 1f : Gee;
+            // KSP counts the g-force only while the ship descends, so its Kerbals cheer in free fall but not while climbing, and in a
+            // steady orbit (a climb rate flipping around zero) they flicker between the two. Here the g-force counts whenever the
+            // vehicle is off the ground: weightless is cheerful, whichever way it is moving. On the ground it is taken as 1 g.
+            float gee = i is null || i.Contact ? 1f : Gee;
             float speed = (float)(i?.Speed ?? 0), rates = Math.Min((float)(i?.Rates ?? 0), 100f);
             float whee = (1f - Math.Clamp(Math.Abs(gee), 0f, 1f)) * 0.6f;
             whee += Badass ? speed / 100f : 0f;
@@ -214,11 +224,11 @@ internal static class ExpressionAI
                 _target.Add(new Vector3(target, 0f, 0f), dt);
                 target = _target.Mean.X;
             }
-            Expression += (target - Expression) * Math.Min(dt, 1f);
+            Expression += (target - Expression) * Math.Min(dt * ExpressionLerpRate, 1f);
             if (seated)
                 TickIdle(dt);
             else
-                IsIdle = false;
+                IsIdle = CanIdleAction = false;
         }
 
         /// KSP's G tolerance: braver Kerbals take more, "badass" ones more again.
@@ -239,11 +249,12 @@ internal static class ExpressionAI
 
         private void TickIdle(float dt)
         {
-            if (Math.Abs(Expression) > 0.06f)
-            {
+            bool calm = Math.Abs(Expression) <= 0.06f;
+            CanIdleAction = calm || (Expression > 0.06f && Panic < 0.2f);
+            if (!calm)
                 IsIdle = false;
+            if (!CanIdleAction)
                 return;
-            }
             if (Warped)  // the clips would play at warp speed: no new idle until normal speed
             {
                 IdleTimer = 0f;
@@ -253,7 +264,8 @@ internal static class ExpressionAI
             if (IdleTimer < Settings.Current.IdleSeconds)
                 return;
             IdleTimer = 0f;
-            IsIdle = true;
+            if (calm)
+                IsIdle = true;
             ActionRequested = Random.Shared.Next(0, 100) < Settings.Current.IdleChancePercent;
         }
 
@@ -315,14 +327,14 @@ internal static class ExpressionAI
                 return true;
             if (Playing(__instance))
             {
-                if (time >= EndTime(__instance) || !face.Brain.IsIdle || Warped)  // done, the Kerbal is no longer calm, or time warp is on
+                if (time >= EndTime(__instance) || !face.Brain.CanIdleAction || Warped)  // done, the Kerbal is no longer calm or cheerful, or time warp is on
                 {
                     Playing(__instance) = false;
                     if (defaultAnim != null)
                         model.SetAnimation(defaultAnim);
                 }
             }
-            else if (face.Brain.IsIdle && !Warped && face.Brain.TakeActionRequest())
+            else if (face.Brain.CanIdleAction && !Warped && face.Brain.TakeActionRequest())
             {
                 AnimationAssetRef action = actions[Random.Shared.Next(actions.Count)];
                 Playing(__instance) = true;

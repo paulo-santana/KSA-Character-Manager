@@ -24,11 +24,14 @@ namespace CharacterManager;
 ///             </Blend>
 ///         </CharacterManager.FaceBlend>
 /// Like Unity's 1D blend trees, the two children around the value are mixed, and the clips of all the levels run on one shared
-/// normalised time. What drives it is the player's choice (View > Mods > Expression): off, the sliders there, or KSP's own rules
+/// normalised time. A second, same-shaped block, CharacterManager.HeadBlend, is KSP's head layer: the bones of the head and eyes,
+/// swaying slowly when calm and looking around when excited or afraid, only for a seated Kerbal (KSP's EVA animator has none).
+/// What drives it is the player's choice (View > Mods > Expression): off, the sliders there, or KSP's own rules
 /// (ExpressionAI).
 internal static class FaceBlend
 {
     internal const string Tag = AnimationExtensions.Prefix + "FaceBlend";
+    internal const string HeadTag = AnimationExtensions.Prefix + "HeadBlend";
     private static readonly string[] Parameters = { "Expression", "Variance", "SecondaryVariance" };
     /// Seconds the face takes to come in or out when driving is switched.
     private const float FadeSeconds = 0.4f;
@@ -57,18 +60,30 @@ internal static class FaceBlend
         public bool Female;
     }
 
-    /// CharacterExpressions id -> its face blend
+    /// CharacterExpressions id -> its face blend, and its head blend
     internal static readonly Dictionary<string, Declared> ByExpressions = new(StringComparer.Ordinal);
+    internal static readonly Dictionary<string, Declared> HeadByExpressions = new(StringComparer.Ordinal);
 
-    internal static void Clear() => ByExpressions.Clear();
+    internal static void Clear()
+    {
+        ByExpressions.Clear();
+        HeadByExpressions.Clear();
+    }
 
     internal static void Read(XElement block)
     {
-        if (AnimationExtensions.IdOf(block) is not { } id || block.Element(Tag) is not { } face)
+        if (AnimationExtensions.IdOf(block) is not { } id)
             return;
-        string[] bones = face.Element("Bones")?.Elements("Bone").Select(b => (string?)b.Attribute("Name")).OfType<string>().ToArray() ?? Array.Empty<string>();
-        if (face.Element("Blend") is { } root && bones.Length > 0)
-            ByExpressions[id] = new Declared { Bones = bones, Root = Parse(root), Female = (string?)face.Attribute("Gender") == "Female" };
+        if (block.Element(Tag) is { } face && Declare(face, (string?)face.Attribute("Gender") == "Female") is { } declaredFace)
+            ByExpressions[id] = declaredFace;
+        if (block.Element(HeadTag) is { } head && Declare(head, false) is { } declaredHead)
+            HeadByExpressions[id] = declaredHead;
+    }
+
+    private static Declared? Declare(XElement layer, bool female)
+    {
+        string[] bones = layer.Element("Bones")?.Elements("Bone").Select(b => (string?)b.Attribute("Name")).OfType<string>().ToArray() ?? Array.Empty<string>();
+        return layer.Element("Blend") is { } root && bones.Length > 0 ? new Declared { Bones = bones, Root = Parse(root), Female = female } : null;
     }
 
     private static Node Parse(XElement e)
@@ -134,13 +149,16 @@ internal static class FaceBlend
         Evaluate(c[^1].Child, values, weight, into);
     }
 
-    /// A new standing model: give it the face its character declares, if any.
+    /// A new model, standing or seated: give it the face (and head) its character declares, if any.
     internal static void Attach(KittenRenderable r, CharacterAvatar avatar, CharacterReference? character, string characterId)
     {
         string? expressions = character?.CharacterExpressions?.Ref;
         if (expressions is null || !ByExpressions.TryGetValue(expressions, out Declared? declared) || Build(declared.Root, characterId) is not { } root)
             return;
-        Processor face = new() { CharacterAvatar = avatar, Priority = 1.5f, Root = root, BoneNames = declared.Bones, Owner = r };
+        Layer? head = null;
+        if (HeadByExpressions.TryGetValue(expressions, out Declared? declaredHead) && Build(declaredHead.Root, characterId) is { } headRoot)
+            head = new Layer { Root = headRoot, BoneNames = declaredHead.Bones };
+        Processor face = new() { CharacterAvatar = avatar, Priority = 1.5f, Face = new Layer { Root = root, BoneNames = declared.Bones }, Head = head, Owner = r };
         face.Brain.Female = declared.Female;
         avatar.Core.CharacterModel.AnimProcessors.Add(face);
         ByRenderable.AddOrUpdate(r, face);
@@ -148,12 +166,11 @@ internal static class FaceBlend
         All.Add(new WeakReference<Processor>(face));
     }
 
-    internal sealed class Processor : CatPostAnim
+    /// One blend tree playing onto its bones.
+    internal sealed class Layer
     {
         internal required Runtime Root;
         internal required string[] BoneNames;
-        internal required KittenRenderable Owner;
-        internal readonly ExpressionAI.Brain Brain = new();
         private int[]? _bones;
         private TransformTRS[]? _acc, _scratch;
         /// Where the blend is in its cycle, 0..1: like Unity's, it advances by dt over the weighted length each frame, so a changing
@@ -162,17 +179,8 @@ internal static class FaceBlend
         /// What played last frame, for the window.
         internal readonly List<(Runtime Leaf, float Weight)> Active = new();
 
-        public override void UpdateLocalPose(float4x4 transform, Skeleton skeleton, Span<TransformTRS> localPose, float dt)
+        internal void Apply(Skeleton skeleton, Span<TransformTRS> localPose, float dt, ReadOnlySpan<float> values, bool shown)
         {
-            FaceMode mode = Settings.Current.FaceMode;
-            ExpressionAI.ByRenderable.TryGetValue(Owner, out ExpressionAI.Inputs? inputs);
-            if (inputs != null)
-                Brain.Identify(inputs.Kitten);
-            Brain.WanderVariance(dt);
-            if (mode == FaceMode.Ksp)
-                Brain.Update(dt, inputs);
-            // the face is out while the animator would be in its idle state, and while the player has switched it off
-            bool shown = mode == FaceMode.Manual || (mode == FaceMode.Ksp && !Brain.IsIdle);
             _fade = Math.Clamp(_fade + (shown ? dt : -dt) / FadeSeconds, 0f, 1f);
             if (_fade <= 0f)
             {
@@ -180,9 +188,6 @@ internal static class FaceBlend
                 return;
             }
             _bones ??= BoneNames.Select(n => skeleton.BoneNames?.FindIndex(b => string.Equals(b, n, StringComparison.OrdinalIgnoreCase)) ?? -1).Where(i => i >= 0).ToArray();
-            Span<float> values = mode == FaceMode.Ksp
-                ? stackalloc float[] { Brain.Expression, Brain.Variance, Brain.Secondary }
-                : stackalloc float[] { Expression, FaceBlend.Wander ? Brain.Variance : Variance, FaceBlend.Wander ? Brain.Secondary : SecondaryVariance };
             Active.Clear();
             Evaluate(Root, values, 1f, Active);
             if (Active.Count == 0)
@@ -193,14 +198,13 @@ internal static class FaceBlend
                 length += weight * leaf.Clip!.AnimLength;
             if (length > 1e-4f)
                 _phase = (_phase + dt / length) % 1f;
-            float phase = _phase;
             _acc ??= new TransformTRS[skeleton.WorldTransforms.Length];
             _scratch ??= new TransformTRS[skeleton.WorldTransforms.Length];
             float total = 0f;
             foreach ((Runtime leaf, float weight) in Active)
             {
                 AnimationAssetRef clip = leaf.Clip!;
-                clip.Sample(phase * clip.AnimLength, _scratch);
+                clip.Sample(_phase * clip.AnimLength, _scratch);
                 total += weight;
                 float f = weight / total;
                 foreach (int b in _bones)
@@ -208,6 +212,32 @@ internal static class FaceBlend
             }
             foreach (int b in _bones)
                 localPose[b] = TransformTRS.Lerp(localPose[b], _acc[b], _fade);
+        }
+    }
+
+    internal sealed class Processor : CatPostAnim
+    {
+        internal required Layer Face;
+        internal Layer? Head;
+        internal required KittenRenderable Owner;
+        internal readonly ExpressionAI.Brain Brain = new();
+
+        public override void UpdateLocalPose(float4x4 transform, Skeleton skeleton, Span<TransformTRS> localPose, float dt)
+        {
+            FaceMode mode = Settings.Current.FaceMode;
+            ExpressionAI.ByRenderable.TryGetValue(Owner, out ExpressionAI.Inputs? inputs);
+            if (inputs != null)
+                Brain.Identify(inputs.Kitten);
+            Brain.WanderVariance(dt);
+            if (mode == FaceMode.Ksp)
+                Brain.Update(dt, inputs);
+            Span<float> values = mode == FaceMode.Ksp
+                ? stackalloc float[] { Brain.Expression, Brain.Variance, Brain.Secondary }
+                : stackalloc float[] { Expression, FaceBlend.Wander ? Brain.Variance : Variance, FaceBlend.Wander ? Brain.Secondary : SecondaryVariance };
+            // the face is out while the animator would be in its idle state, and while the player has switched it off
+            Face.Apply(skeleton, localPose, dt, values, mode == FaceMode.Manual || (mode == FaceMode.Ksp && !Brain.IsIdle));
+            // the head layer runs whatever the Kerbal is doing, but only in a seat: the EVA animator has none
+            Head?.Apply(skeleton, localPose, dt, values, mode != FaceMode.Off && inputs?.Seated == true);
         }
     }
 }
@@ -297,8 +327,14 @@ internal static class ExpressionWindow
             ImGui.Text($"speed {i.Speed:0.0} m/s (surface {i.SurfaceSpeed:0.0})  climb {i.VerticalSpeed:0.0}  height {i.RadarAltitude:0}");
             ImGui.Text($"g-force {i.Gee:0.00} (smoothed {b.Gee:0.00})  G-LOC {b.GNormalized * 100f:0}%  spin {i.Rates:0.00} rad/s{(i.Jetpack ? "  RCS on" : "")}");
         }
-        foreach ((FaceBlend.Runtime leaf, float weight) in face.Active.OrderByDescending(a => a.Weight).Take(5))
+        foreach ((FaceBlend.Runtime leaf, float weight) in face.Face.Active.OrderByDescending(a => a.Weight).Take(5))
             ImGui.Text($"{weight * 100f,5:0}%  {leaf.ClipId ?? ""}");
+        if (face.Head is { } head && head.Active.Count > 0)
+        {
+            ImGui.Text("head:");
+            foreach ((FaceBlend.Runtime leaf, float weight) in head.Active.OrderByDescending(a => a.Weight).Take(3))
+                ImGui.Text($"{weight * 100f,5:0}%  {leaf.ClipId ?? ""}");
+        }
     }
 }
 

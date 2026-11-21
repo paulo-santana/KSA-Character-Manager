@@ -175,7 +175,7 @@ internal static class AnimationExtensions
                      + (d.LadderDown is null ? "" : ", ladder down") + (d.Rcs.Count == 0 ? "" : $", {d.Rcs.Count} RCS clips")
                      + (d.RcsOn is null ? "" : ", RCS on") + (d.RcsOff is null ? "" : ", RCS off"));
         foreach ((string id, FaceBlend.Declared face) in FaceBlend.ByExpressions)
-            Log.Info($"{id}: face blend of {face.Bones.Length} bones");
+            Log.Info($"{id}: face blend of {face.Bones.Length} bones" + (FaceBlend.HeadByExpressions.TryGetValue(id, out FaceBlend.Declared? head) ? $", head blend of {head.Bones.Length}" : ""));
         foreach (string id in ArmExtendByMmuAnimations.Keys.Union(FloatByMmuAnimations.Keys).Union(FloatTogglesByMmuAnimations.Keys))
             Log.Info($"{id}: " + string.Join(", ", new[] { ArmExtendByMmuAnimations.ContainsKey(id) ? "jetpack arm extend clip" : null,
                                                             FloatByMmuAnimations.ContainsKey(id) ? "floating clip" : null,

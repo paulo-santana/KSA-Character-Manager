@@ -16,6 +16,9 @@ Open **View > Mods > Characters** in game.
 - **Idle variety:** a crew member standing still on the ground plays one of their character's idle variants now and then, e.g. KSP's idle animations for the Kerbals of KSP Characters. The game has this only for seated crew and the jetpack.
 - **Ladders:** a character can have its own clips for holding still on a ladder and for climbing down; the game has one climbing clip for both directions and freezes it whenever the position doesn't change.
 - **RCS stance:** while the jetpack's RCS is on, a character can stand, walk and jump with its own clips, and play a toggle animation when RCS is turned on or off while standing. Its jetpack's arms can come out with their own clip, in step with the body; the game plays its one arm clip backwards.
+- **Expressions:** a character can have KSP's face blend. The face follows what the Kerbal is going through, as in KSP: cheerful when weightless, worried at high g or at speed, calm when standing still. View > Mods > Expression has the mode (off, manual sliders, like KSP) and each Kerbal's numbers.
+- **Seated idles:** a seated crew member who is calm or cheerful plays one of their idle clips now and then, timed like KSP's, and keeps looking around with the head layer.
+- **Floating:** a character can have its own pose for floating with RCS off, and clips for the arms when RCS is toggled while floating.
 - **Jetpacks:** a character with its own jetpack can put the RCS puffs at that jetpack's thrusters. Only the visuals move; the thrust stays the game's. Untick "RCS puffs from the character's own jetpack" to see the game's positions.
 - **Current Game:** "Regenerate unused recruits" replaces the crew in the current game who have never flown, aren't seated and aren't on EVA, using the options above. Click it twice to confirm.
 
@@ -104,10 +107,38 @@ In `CharacterGroundAnimations`:
 
 In `CharacterMMUAnimations`, `CharacterManager.MMUArmExtendAnim` is the jetpack's arms coming out when RCS is turned on. The game has only `MMUArmRetractAnim` and plays it backwards. The extend clip uses the same skeleton.
 
+In `CharacterMMUAnimations` too, for floating (a crew member in free space with RCS off, holding no jetpack controls): `CharacterManager.MMUFloatAnim` is the pose, and `CharacterManager.MMUFloatRcsOnAnim` and `CharacterManager.MMUFloatRcsOffAnim` are the arms moving when RCS is turned on or off while floating.
+
 In the jetpack's `CharacterAttachment`, `CharacterManager.RcsPuffs` lists one `RcsPuff` per nozzle of the game's EVA jetpack (`KittenBackPackSubPart` in `Core/PartGameData.xml`, e.g. `TranslateRight1`).
 - The coordinates are in that part's frame: metres, the feet at the origin, +X forward, +Y right, -Z up.
 - `X`, `Y`, `Z` are where the puff starts. `DX`, `DY`, `DZ`, optional, are the direction it blows.
 - Only the puffs, trails and exhaust light move; each nozzle still pushes from where the game puts it.
+
+### Expressions
+
+A face and a head blend go in a `CharacterExpressions` block, named by the `Id` of the character's `CharacterExpressions` asset. Each is a tree: a `Blend` mixes its `Child`ren, each at a `Threshold`, by one of three parameters, and a `Clip` points at a `GltfFile` that animates only the listed `Bones`. KSP blends by `Expression` (-1 frightened to 1 excited), then `Variance`, then `SecondaryVariance` (both 0 to 1, wandering at random).
+
+```xml
+<CharacterExpressions Id="MyExpressions" Modify="Patch">
+    <CharacterManager.FaceBlend Gender="Male">   <!-- Gender is optional; "Female" changes KSP's calm-standing face -->
+        <Bones>
+            <Bone Name="bn_lowerJaw01"/>
+        </Bones>
+        <Blend Param="Expression">
+            <Child Threshold="-1"><Clip Ref="MyPanicGlb"/></Child>
+            <Child Threshold="1"><Clip Ref="MyHappyGlb"/></Child>
+        </Blend>
+    </CharacterManager.FaceBlend>
+    <CharacterManager.HeadBlend>
+        <Bones><Bone Name="bn_headPivot_b01"/></Bones>
+        <Blend Param="Expression">...</Blend>
+    </CharacterManager.HeadBlend>
+</CharacterExpressions>
+```
+
+- The face blend replaces the bones' pose on top of the character's animation, except while the Kerbal is idle and calm, as in KSP. The head blend does the same for a seated Kerbal only.
+- A clip that doesn't name a bone leaves it as the animation has it. Clips of one blend can differ in length: they advance together by their weighted average length, as Unity does.
+- Seated idle clips need no tag: the game's own `AnimSeatedIdle` and `AnimSeatedIdleActions` are used, and Character Manager picks the action and its timing like KSP.
 
 How they play:
 - **Idle variants:** a standing character plays a random one after 10 to 20 seconds of idle, then goes back to `AnimIdle`.
