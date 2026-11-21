@@ -40,7 +40,11 @@ public class CharacterManagerMod
     }
 
     [StarMapAfterGui]
-    public void Gui(double dt) => Window.Draw();
+    public void Gui(double dt)
+    {
+        Window.Draw();
+        ExpressionWindow.Draw();
+    }
 }
 
 [HarmonyPatch(typeof(ModLibrary), nameof(ModLibrary.LoadAll))]

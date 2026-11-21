@@ -15,6 +15,15 @@ internal sealed class Settings
     /// Draw RCS puffs where a character's own jetpack has its thrusters, when its mod says where they are.
     public bool RcsPuffsAtJetpack { get; set; } = true;
 
+    /// What drives the Kerbals' face (FaceBlend); KSP's own rules unless the player chooses otherwise.
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+    public FaceMode FaceMode { get; set; } = FaceMode.Ksp;
+
+    /// A seated Kerbal who has stayed calm checks every IdleSeconds whether to play an idle clip, with this chance in percent
+    /// (KSP: every 10 s, 10 %).
+    public float IdleSeconds { get; set; } = 1f;
+    public int IdleChancePercent { get; set; } = 10;
+
     internal static Settings Current { get; private set; } = new();
 
     private static string FilePath => Path.Combine(Constants.DocumentsFolderPath, "CharacterManager.json");
