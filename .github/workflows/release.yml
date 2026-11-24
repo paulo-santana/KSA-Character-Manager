@@ -60,6 +60,10 @@ jobs:
           ssh-key: ${{ secrets.BUILD_LIBS_KEY }}
           path: build-libs
 
+      - name: Check the build libs are the newest game build
+        if: steps.version.outputs.new == 'true'
+        run: python3 .github/scripts/check_libs.py build-libs
+
       - uses: actions/setup-dotnet@v4
         if: steps.version.outputs.new == 'true'
         with:
